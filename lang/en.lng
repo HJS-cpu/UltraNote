@@ -44,6 +44,7 @@ notelist.col_folder=Folder
 notelist.rename=&Rename
 notelist.set_folder=Set &Folder
 notelist.options=&Options
+notelist.preview=&Preview
 notelist.folder_menu=F&older
 
 folder.new=New Folder

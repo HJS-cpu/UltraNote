@@ -37,6 +37,9 @@
 #define ID_NL_NOTE_RENAME       227
 #define ID_NL_NOTE_SETFOLDER    228
 
+// Preview toggle
+#define ID_NL_PREVIEW           310
+
 // Folder management
 #define ID_NL_FOLDER_NEW        240
 #define ID_NL_FOLDER_RENAME     241
@@ -58,3 +61,5 @@
 // Timer IDs
 #define IDT_AUTOSAVE            1
 #define AUTOSAVE_INTERVAL_MS    30000
+#define IDT_PREVIEW             2
+#define PREVIEW_DELAY_MS        400

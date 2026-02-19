@@ -64,30 +64,46 @@ bool NoteListWindow::Create() {
 
     if (!m_hwnd) return false;
 
+    // Helper: append menu item with shell stock icon
+    auto& app = Application::Get();
+    auto addItem = [&](HMENU hMenu, UINT id, const wchar_t* text, SHSTOCKICONID iconId) {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP;
+        mii.wID        = id;
+        mii.dwTypeData = const_cast<wchar_t*>(text);
+        mii.hbmpItem   = app.GetMenuBitmap(iconId);
+        InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
+    };
+
     // Build menu bar programmatically
     HMENU hMenuBar = CreateMenu();
+
+    // File menu
     HMENU hFileMenu = CreatePopupMenu();
-    AppendMenuW(hFileMenu, MF_STRING, ID_NL_NOTE_NEW,   Ls(L"notelist.new_note").c_str());
+    addItem(hFileMenu, ID_NL_NOTE_NEW, Ls(L"notelist.new_note").c_str(), SIID_DOCNOASSOC);
     AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hFileMenu, MF_STRING, ID_NL_FILE_CLOSE, Ls(L"notelist.close").c_str());
+    addItem(hFileMenu, ID_NL_FILE_CLOSE, Ls(L"notelist.close").c_str(), SIID_DELETE);
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hFileMenu),
                 Ls(L"notelist.file").c_str());
 
+    // Note menu
     HMENU hNoteMenu = CreatePopupMenu();
-    AppendMenuW(hNoteMenu, MF_STRING, ID_NL_NOTE_EDIT,    Ls(L"notelist.edit").c_str());
-    AppendMenuW(hNoteMenu, MF_STRING, ID_NL_NOTE_RENAME,  Ls(L"notelist.rename").c_str());
-    AppendMenuW(hNoteMenu, MF_STRING, ID_NL_NOTE_DELETE,  Ls(L"notelist.delete").c_str());
+    addItem(hNoteMenu, ID_NL_NOTE_EDIT,   Ls(L"notelist.edit").c_str(),   SIID_RENAME);
+    addItem(hNoteMenu, ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str(), SIID_DOCASSOC);
+    addItem(hNoteMenu, ID_NL_NOTE_DELETE, Ls(L"notelist.delete").c_str(), SIID_DELETE);
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hNoteMenu),
                 Ls(L"notelist.note").c_str());
 
+    // Folder menu
     HMENU hFolderMenu = CreatePopupMenu();
-    AppendMenuW(hFolderMenu, MF_STRING, ID_NL_FOLDER_NEW,    Ls(L"folder.new").c_str());
-    AppendMenuW(hFolderMenu, MF_STRING, ID_NL_FOLDER_RENAME, Ls(L"folder.rename").c_str());
-    AppendMenuW(hFolderMenu, MF_STRING, ID_NL_FOLDER_DELETE, Ls(L"folder.delete").c_str());
+    addItem(hFolderMenu, ID_NL_FOLDER_NEW,    Ls(L"folder.new").c_str(),    SIID_FOLDER);
+    addItem(hFolderMenu, ID_NL_FOLDER_RENAME, Ls(L"folder.rename").c_str(), SIID_RENAME);
+    addItem(hFolderMenu, ID_NL_FOLDER_DELETE, Ls(L"folder.delete").c_str(), SIID_DELETE);
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hFolderMenu),
                 Ls(L"notelist.folder_menu").c_str());
 
-    // Options menu with Settings > Language submenu (same as systray)
+    // Options menu with Settings > Language submenu
     HMENU hOptionsMenu = CreatePopupMenu();
     HMENU hSettingsMenu = CreatePopupMenu();
     HMENU hLangMenu = CreatePopupMenu();
@@ -99,10 +115,29 @@ bool NoteListWindow::Create() {
         AppendMenuW(hLangMenu, flags, ID_LANG_BASE + static_cast<UINT>(i),
                     langs[i].second.c_str());
     }
-    AppendMenuW(hSettingsMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hLangMenu),
-                Ls(L"menu.language").c_str());
-    AppendMenuW(hOptionsMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hSettingsMenu),
-                Ls(L"menu.settings").c_str());
+    // Settings submenu with icon
+    {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_STRING | MIIM_SUBMENU | MIIM_BITMAP;
+        mii.hSubMenu   = hLangMenu;
+        mii.dwTypeData = const_cast<wchar_t*>(Ls(L"menu.language").c_str());
+        mii.hbmpItem   = app.GetMenuBitmap(SIID_WORLD);
+        InsertMenuItemW(hSettingsMenu, 0, TRUE, &mii);
+    }
+    {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_STRING | MIIM_SUBMENU | MIIM_BITMAP;
+        mii.hSubMenu   = hSettingsMenu;
+        mii.dwTypeData = const_cast<wchar_t*>(Ls(L"menu.settings").c_str());
+        mii.hbmpItem   = app.GetMenuBitmap(SIID_WORLD);
+        InsertMenuItemW(hOptionsMenu, 0, TRUE, &mii);
+    }
+    AppendMenuW(hOptionsMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hOptionsMenu, MF_STRING | (m_previewEnabled ? MF_CHECKED : 0),
+                ID_NL_PREVIEW, Ls(L"notelist.preview").c_str());
+
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hOptionsMenu),
                 Ls(L"notelist.options").c_str());
 
@@ -131,9 +166,12 @@ void NoteListWindow::Show() {
     Refresh();
     ShowWindow(m_hwnd, SW_SHOW);
     SetForegroundWindow(m_hwnd);
+    if (m_previewEnabled) StartPreviewTimer();
 }
 
 void NoteListWindow::Hide() {
+    StopPreviewTimer();
+    HidePreviewNote();
     ShowWindow(m_hwnd, SW_HIDE);
 }
 
@@ -245,6 +283,25 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 case ID_NL_HIDE_ALL:
                     Application::Get().HideAllNotes();
                     return 0;
+                case ID_NL_PREVIEW: {
+                    m_previewEnabled = !m_previewEnabled;
+                    // Update menu checkmark
+                    HMENU hMenuBar = GetMenu(m_hwnd);
+                    if (hMenuBar) {
+                        int menuCount = GetMenuItemCount(hMenuBar);
+                        HMENU hOptionsMenu = GetSubMenu(hMenuBar, menuCount - 1);
+                        if (hOptionsMenu)
+                            CheckMenuItem(hOptionsMenu, ID_NL_PREVIEW,
+                                          MF_BYCOMMAND | (m_previewEnabled ? MF_CHECKED : MF_UNCHECKED));
+                    }
+                    if (m_previewEnabled) {
+                        StartPreviewTimer();
+                    } else {
+                        StopPreviewTimer();
+                        HidePreviewNote();
+                    }
+                    return 0;
+                }
                 case ID_NL_FOLDER_NEW:
                     NewFolderDialog();
                     return 0;
@@ -532,8 +589,56 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
         }
 
+        case WM_TIMER: {
+            if (wParam == IDT_PREVIEW && m_previewEnabled && m_hListView) {
+                POINT pt;
+                GetCursorPos(&pt);
+                POINT clientPt = pt;
+                ScreenToClient(m_hListView, &clientPt);
+
+                RECT lvRect;
+                GetClientRect(m_hListView, &lvRect);
+
+                int hitIdx = -1;
+                if (PtInRect(&lvRect, clientPt)) {
+                    LVHITTESTINFO htInfo = {};
+                    htInfo.pt = clientPt;
+                    hitIdx = ListView_HitTest(m_hListView, &htInfo);
+                }
+
+                if (hitIdx != m_previewPendingIdx) {
+                    // Cursor moved to a different row
+                    m_previewPendingIdx = hitIdx;
+                    m_previewHoverStart = GetTickCount();
+
+                    // If cursor left the list, hide preview
+                    if (hitIdx < 0) {
+                        HidePreviewNote();
+                    }
+                } else if (hitIdx >= 0 && hitIdx != m_previewNoteIdx) {
+                    // Still on same row, check if delay elapsed
+                    DWORD elapsed = GetTickCount() - m_previewHoverStart;
+                    if (elapsed >= PREVIEW_DELAY_MS) {
+                        // Get note ID from ListView item
+                        LVITEMW item = {};
+                        item.mask  = LVIF_PARAM;
+                        item.iItem = hitIdx;
+                        ListView_GetItem(m_hListView, &item);
+                        uint64_t noteId = static_cast<uint64_t>(item.lParam);
+
+                        HidePreviewNote();
+                        ShowPreviewNote(noteId);
+                        m_previewNoteIdx = hitIdx;
+                    }
+                }
+            }
+            return 0;
+        }
+
         case WM_CLOSE:
             SaveSettings();
+            StopPreviewTimer();
+            HidePreviewNote();
             Hide();
             return 0;
 
@@ -852,6 +957,23 @@ void NoteListWindow::LoadSettings() {
         ResizeControls();
     }
 
+    // Preview setting
+    auto itPV = settings.find(L"notelist.preview");
+    if (itPV != settings.end()) {
+        m_previewEnabled = (itPV->second != 0);
+        if (m_previewEnabled) {
+            StartPreviewTimer();
+            // Update menu checkmark
+            HMENU hMenuBar = GetMenu(m_hwnd);
+            if (hMenuBar) {
+                int menuCount = GetMenuItemCount(hMenuBar);
+                HMENU hOptionsMenu = GetSubMenu(hMenuBar, menuCount - 1);
+                if (hOptionsMenu)
+                    CheckMenuItem(hOptionsMenu, ID_NL_PREVIEW, MF_BYCOMMAND | MF_CHECKED);
+            }
+        }
+    }
+
     // Column widths (4 columns now)
     if (m_hListView) {
         const wchar_t* keys[] = {
@@ -877,6 +999,7 @@ void NoteListWindow::SaveSettings() {
     settings[L"notelist.height"] = wr.bottom - wr.top;
 
     settings[L"notelist.folder_width"] = m_folderListWidth;
+    settings[L"notelist.preview"] = m_previewEnabled ? 1 : 0;
 
     if (m_hListView) {
         settings[L"notelist.col0_width"] = ListView_GetColumnWidth(m_hListView, COL_TITLE);
@@ -953,6 +1076,15 @@ void NoteListWindow::EditSelectedNote() {
     ListView_GetItem(m_hListView, &item);
 
     uint64_t id = static_cast<uint64_t>(item.lParam);
+
+    // If this note is being previewed, restore its original position first
+    if (id == m_previewNoteId && m_previewWasHidden) {
+        RestorePreviewPosition();
+        m_previewWasHidden = false;
+        m_previewNoteId = 0;
+        m_previewNoteIdx = -1;
+    }
+
     Application::Get().BringNoteToFront(id);
 }
 
@@ -1112,6 +1244,91 @@ void NoteListWindow::DeleteFolderConfirm(const std::wstring& name) {
     if (result == IDYES) {
         Application::Get().DeleteFolder(name);
     }
+}
+
+// ============================================================================
+// Preview
+// ============================================================================
+
+void NoteListWindow::StartPreviewTimer() {
+    if (!m_previewTimerActive && m_hwnd) {
+        SetTimer(m_hwnd, IDT_PREVIEW, 100, nullptr);
+        m_previewTimerActive = true;
+    }
+}
+
+void NoteListWindow::StopPreviewTimer() {
+    if (m_previewTimerActive && m_hwnd) {
+        KillTimer(m_hwnd, IDT_PREVIEW);
+        m_previewTimerActive = false;
+    }
+    m_previewPendingIdx = -1;
+    m_previewNoteIdx = -1;
+}
+
+void NoteListWindow::ShowPreviewNote(uint64_t noteId) {
+    auto& app = Application::Get();
+
+    // If note is already visible, just remember it but don't track as "was hidden"
+    if (app.IsNoteVisible(noteId)) {
+        m_previewNoteId = noteId;
+        m_previewWasHidden = false;
+        return;
+    }
+
+    // Show the note (it was hidden)
+    NoteWindow* wnd = app.ShowNotePreview(noteId);
+    m_previewNoteId = noteId;
+    m_previewWasHidden = true;
+
+    // Position note with top-right corner at cursor
+    if (wnd) {
+        NoteData* data = wnd->GetData();
+        m_previewOrigX = data->x;
+        m_previewOrigY = data->y;
+
+        POINT cursorPt;
+        GetCursorPos(&cursorPt);
+
+        RECT noteRect;
+        GetWindowRect(wnd->GetHwnd(), &noteRect);
+        int noteW = noteRect.right - noteRect.left;
+        int noteH = noteRect.bottom - noteRect.top;
+
+        int newX = cursorPt.x;
+        int newY = cursorPt.y;
+
+        // Ensure note stays on screen
+        HMONITOR hMon = MonitorFromPoint(cursorPt, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = {};
+        mi.cbSize = sizeof(mi);
+        if (GetMonitorInfoW(hMon, &mi)) {
+            if (newX + noteW > mi.rcWork.right)
+                newX = mi.rcWork.right - noteW;
+            if (newY + noteH > mi.rcWork.bottom)
+                newY = mi.rcWork.bottom - noteH;
+        }
+
+        SetWindowPos(wnd->GetHwnd(), nullptr, newX, newY, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+void NoteListWindow::RestorePreviewPosition() {
+    if (m_previewNoteId == 0 || !m_previewWasHidden) return;
+
+    // Restore original position via Application
+    Application::Get().MoveNoteWindow(m_previewNoteId, m_previewOrigX, m_previewOrigY);
+}
+
+void NoteListWindow::HidePreviewNote() {
+    if (m_previewNoteId > 0 && m_previewWasHidden) {
+        RestorePreviewPosition();
+        Application::Get().HideNotePreview(m_previewNoteId);
+    }
+    m_previewNoteId = 0;
+    m_previewNoteIdx = -1;
+    m_previewWasHidden = false;
 }
 
 // ============================================================================

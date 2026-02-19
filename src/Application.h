@@ -56,6 +56,12 @@ public:
     // Bring a note to front and optionally enter edit mode
     void BringNoteToFront(uint64_t id);
 
+    // Preview: show/hide note without entering edit mode
+    NoteWindow* ShowNotePreview(uint64_t id);
+    void HideNotePreview(uint64_t id);
+    bool IsNoteVisible(uint64_t id) const;
+    void MoveNoteWindow(uint64_t id, int x, int y);
+
     // Note list window
     void ToggleNoteList();
     void RefreshNoteList();

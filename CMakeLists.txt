@@ -38,6 +38,12 @@ target_link_libraries(UltraNote PRIVATE
 # MSVC specific settings
 if(MSVC)
     target_compile_options(UltraNote PRIVATE /W4 /utf-8)
+    # Release: optimize for size, enable function-level linking
+    target_compile_options(UltraNote PRIVATE
+        $<$<CONFIG:Release>:/O1 /Gy /GS->)
+    # Release: strip unreferenced code, fold identical functions
+    target_link_options(UltraNote PRIVATE
+        $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>)
     # Static link CRT for portability
     set_property(TARGET UltraNote PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

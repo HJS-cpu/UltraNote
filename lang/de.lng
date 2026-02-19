@@ -15,7 +15,7 @@ menu.exit=&Beenden
 
 note.edit=&Bearbeiten	Enter
 note.copy=&Kopieren	C
-note.delete=&Loeschen	Entf
+note.delete=&Löschen	Entf
 note.hide=&Verstecken
 note.always_on_top=Immer im &Vordergrund	O
 note.new_note=&Neue Notiz
@@ -26,16 +26,16 @@ note.enter_title=Notiztitel eingeben:
 
 notelist.title=UltraNote - Notizliste
 notelist.file=&Datei
-notelist.close=&Schliessen
+notelist.close=&Schließen
 notelist.note=&Notiz
 notelist.new_note=&Neue Notiz
 notelist.edit=&Bearbeiten
-notelist.delete=&Loeschen
+notelist.delete=&Löschen
 notelist.col_text=Notiz
 notelist.col_created=Erstellt
 notelist.tb_new=Neue Notiz
 notelist.tb_edit=Bearbeiten
-notelist.tb_delete=Loeschen
+notelist.tb_delete=Löschen
 notelist.tb_show_all=Alle anzeigen
 notelist.tb_hide_all=Alle verstecken
 notelist.tb_rename=Umbenennen
@@ -44,16 +44,17 @@ notelist.col_folder=Ordner
 notelist.rename=&Umbenennen
 notelist.set_folder=&Ordner zuweisen
 notelist.options=&Optionen
+notelist.preview=&Vorschau
 notelist.folder_menu=&Ordner
 
 folder.new=Neuer Ordner
 folder.rename=Ordner umbenennen
-folder.delete=Ordner loeschen
+folder.delete=Ordner löschen
 folder.enter_name=Ordnername eingeben:
-folder.confirm_delete=Ordner '%s' loeschen? Notizen werden nach 'Kein Ordner' verschoben.
+folder.confirm_delete=Ordner '%s' löschen? Notizen werden nach 'Kein Ordner' verschoben.
 
-confirm.delete_one=Diese Notiz loeschen?
-confirm.delete_multi=%d Notizen loeschen?
+confirm.delete_one=Diese Notiz löschen?
+confirm.delete_multi=%d Notizen löschen?
 
-app.already_running=UltraNote laeuft bereits.
+app.already_running=UltraNote läuft bereits.
 note.empty=(leer)

@@ -84,6 +84,23 @@ private:
     static constexpr int FOLDER_MAX_WIDTH    = 400;
     static constexpr int FOLDER_DEFAULT_WIDTH = 150;
 
+    // Preview state
+    bool     m_previewEnabled     = false;
+    int      m_previewNoteIdx     = -1;
+    uint64_t m_previewNoteId      = 0;
+    bool     m_previewWasHidden   = false;
+    bool     m_previewTimerActive = false;
+    int      m_previewPendingIdx  = -1;
+    DWORD    m_previewHoverStart  = 0;
+    int      m_previewOrigX       = 0;
+    int      m_previewOrigY       = 0;
+
+    void ShowPreviewNote(uint64_t noteId);
+    void HidePreviewNote();
+    void RestorePreviewPosition();
+    void StartPreviewTimer();
+    void StopPreviewTimer();
+
     // Input dialog data
     struct InputDlgData {
         std::wstring prompt;

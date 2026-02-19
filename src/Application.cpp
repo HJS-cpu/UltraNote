@@ -502,6 +502,59 @@ void Application::BringNoteToFront(uint64_t id) {
 }
 
 // ============================================================================
+// Preview
+// ============================================================================
+
+NoteWindow* Application::ShowNotePreview(uint64_t id) {
+    auto it = m_noteWindows.find(id);
+    if (it == m_noteWindows.end()) {
+        // Note has no window (hidden) - create one
+        NoteData* data = FindNoteData(id);
+        if (!data) return nullptr;
+        data->isHidden = false;
+        CreateNoteWindow(*data);
+        it = m_noteWindows.find(id);
+        m_dirty = true;
+    } else if (it->second->GetData()->isHidden) {
+        it->second->GetData()->isHidden = false;
+        it->second->Show(true);
+        m_dirty = true;
+    }
+    it->second->BringToFront();
+    return it->second;
+}
+
+void Application::HideNotePreview(uint64_t id) {
+    NoteData* data = FindNoteData(id);
+    if (!data) return;
+    data->isHidden = true;
+    auto it = m_noteWindows.find(id);
+    if (it != m_noteWindows.end()) {
+        it->second->Show(false);
+    }
+    m_dirty = true;
+}
+
+bool Application::IsNoteVisible(uint64_t id) const {
+    auto it = m_noteWindows.find(id);
+    if (it == m_noteWindows.end()) return false;
+    return !it->second->GetData()->isHidden;
+}
+
+void Application::MoveNoteWindow(uint64_t id, int x, int y) {
+    NoteData* data = FindNoteData(id);
+    if (data) {
+        data->x = x;
+        data->y = y;
+    }
+    auto it = m_noteWindows.find(id);
+    if (it != m_noteWindows.end()) {
+        SetWindowPos(it->second->GetHwnd(), nullptr, x, y, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+// ============================================================================
 // Note list
 // ============================================================================
 

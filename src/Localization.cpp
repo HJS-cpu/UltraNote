@@ -45,16 +45,19 @@ void Localization::LoadDefaults() {
 }
 
 bool Localization::LoadLanguage(const std::wstring& langCode) {
-    // Always start with English defaults
+    // Always start with English defaults as ultimate fallback
     LoadDefaults();
     m_langCode = L"en";
+
+    // Always try to load en.lng first (overrides hardcoded defaults with full set)
+    std::wstring langDir = GetExeDirectory() + L"\\lang";
+    ParseLngFile(langDir + L"\\en.lng");
 
     if (langCode.empty() || langCode == L"en") {
         return true;
     }
 
-    // Try to load the .lng file from lang/ directory next to the EXE
-    std::wstring langDir = GetExeDirectory() + L"\\lang";
+    // Load the requested language on top
     std::wstring langFile = langDir + L"\\" + langCode + L".lng";
 
     if (ParseLngFile(langFile)) {
@@ -62,7 +65,7 @@ bool Localization::LoadLanguage(const std::wstring& langCode) {
         return true;
     }
 
-    // Fallback: English defaults remain loaded
+    // Fallback: English remains loaded
     return false;
 }
 
