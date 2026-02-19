@@ -1078,7 +1078,7 @@ void NoteListWindow::EditSelectedNote() {
     uint64_t id = static_cast<uint64_t>(item.lParam);
 
     // If this note is being previewed, restore its original position first
-    if (id == m_previewNoteId && m_previewWasHidden) {
+    if (id == m_previewNoteId) {
         RestorePreviewPosition();
         m_previewWasHidden = false;
         m_previewNoteId = 0;
@@ -1269,19 +1269,20 @@ void NoteListWindow::StopPreviewTimer() {
 void NoteListWindow::ShowPreviewNote(uint64_t noteId) {
     auto& app = Application::Get();
 
-    // If note is already visible, just remember it but don't track as "was hidden"
+    NoteWindow* wnd = nullptr;
     if (app.IsNoteVisible(noteId)) {
+        // Note already visible - just bring to front and reposition
         m_previewNoteId = noteId;
         m_previewWasHidden = false;
-        return;
+        wnd = app.FindNoteWindow(noteId);
+    } else {
+        // Show the note (it was hidden)
+        wnd = app.ShowNotePreview(noteId);
+        m_previewNoteId = noteId;
+        m_previewWasHidden = true;
     }
 
-    // Show the note (it was hidden)
-    NoteWindow* wnd = app.ShowNotePreview(noteId);
-    m_previewNoteId = noteId;
-    m_previewWasHidden = true;
-
-    // Position note with top-right corner at cursor
+    // Position note near cursor
     if (wnd) {
         NoteData* data = wnd->GetData();
         m_previewOrigX = data->x;
@@ -1309,22 +1310,29 @@ void NoteListWindow::ShowPreviewNote(uint64_t noteId) {
                 newY = mi.rcWork.bottom - noteH;
         }
 
-        SetWindowPos(wnd->GetHwnd(), nullptr, newX, newY, 0, 0,
-                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(wnd->GetHwnd(), HWND_TOPMOST, newX, newY, 0, 0,
+                     SWP_NOSIZE | SWP_NOACTIVATE);
+        // Remove topmost after positioning so it doesn't stay permanently on top
+        if (!wnd->GetData()->layout.alwaysOnTop) {
+            SetWindowPos(wnd->GetHwnd(), HWND_NOTOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
     }
 }
 
 void NoteListWindow::RestorePreviewPosition() {
-    if (m_previewNoteId == 0 || !m_previewWasHidden) return;
+    if (m_previewNoteId == 0) return;
 
     // Restore original position via Application
     Application::Get().MoveNoteWindow(m_previewNoteId, m_previewOrigX, m_previewOrigY);
 }
 
 void NoteListWindow::HidePreviewNote() {
-    if (m_previewNoteId > 0 && m_previewWasHidden) {
+    if (m_previewNoteId > 0) {
         RestorePreviewPosition();
-        Application::Get().HideNotePreview(m_previewNoteId);
+        if (m_previewWasHidden) {
+            Application::Get().HideNotePreview(m_previewNoteId);
+        }
     }
     m_previewNoteId = 0;
     m_previewNoteIdx = -1;

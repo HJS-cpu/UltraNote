@@ -541,6 +541,12 @@ bool Application::IsNoteVisible(uint64_t id) const {
     return !it->second->GetData()->isHidden;
 }
 
+NoteWindow* Application::FindNoteWindow(uint64_t id) const {
+    auto it = m_noteWindows.find(id);
+    if (it == m_noteWindows.end()) return nullptr;
+    return it->second;
+}
+
 void Application::MoveNoteWindow(uint64_t id, int x, int y) {
     NoteData* data = FindNoteData(id);
     if (data) {

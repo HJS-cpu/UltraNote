@@ -60,6 +60,7 @@ public:
     NoteWindow* ShowNotePreview(uint64_t id);
     void HideNotePreview(uint64_t id);
     bool IsNoteVisible(uint64_t id) const;
+    NoteWindow* FindNoteWindow(uint64_t id) const;
     void MoveNoteWindow(uint64_t id, int x, int y);
 
     // Note list window
