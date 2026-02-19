@@ -29,6 +29,10 @@ cmake_install.cmake
 *.lib
 *.exp
 
+# Project-internal docs (never commit)
+CLAUDE.md
+Projekt.md
+
 # OS files
 Thumbs.db
 desktop.ini
