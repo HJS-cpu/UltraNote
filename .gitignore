@@ -1,0 +1,41 @@
+# Build output
+build/
+out/
+x64/
+Debug/
+Release/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.db
+*.opendb
+*.ipch
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Binaries
+*.exe
+*.dll
+*.obj
+*.pdb
+*.ilk
+*.lib
+*.exp
+
+# OS files
+Thumbs.db
+desktop.ini
+.DS_Store
+nul
+
+# Editor
+*.swp
+*.swo
+*~

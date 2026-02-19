@@ -1,0 +1,64 @@
+#include <windows.h>
+#include <commctrl.h>
+#include "Resource.h"
+
+// Icons
+IDI_APP  ICON "UltraNote.ico"
+IDI_TRAY ICON "UltraNote.ico"
+
+// Tray right-click context menu
+IDR_TRAY_MENU MENU
+BEGIN
+    POPUP ""
+    BEGIN
+        MENUITEM "&New Note",       ID_TRAY_NEWNOTE
+        MENUITEM SEPARATOR
+        MENUITEM "&Show Notes",     ID_TRAY_SHOWNOTES
+        MENUITEM "&Hide Notes",     ID_TRAY_HIDENOTES
+        MENUITEM SEPARATOR
+        MENUITEM "Note &List...",   ID_TRAY_NOTELIST
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit",           ID_TRAY_EXIT
+    END
+END
+
+// Note right-click context menu
+IDR_NOTE_MENU MENU
+BEGIN
+    POPUP ""
+    BEGIN
+        MENUITEM "&Edit\tEnter",            ID_NOTE_EDIT
+        MENUITEM "&Copy\tC",                ID_NOTE_COPY
+        MENUITEM SEPARATOR
+        MENUITEM "&Delete\tDel",            ID_NOTE_DELETE
+        MENUITEM SEPARATOR
+        MENUITEM "Always on &Top\tO",       ID_NOTE_ALWAYSONTOP
+        MENUITEM SEPARATOR
+        MENUITEM "&New Note",               ID_NOTE_NEWNOTE
+    END
+END
+
+// Note list menu bar
+IDR_NOTELIST_MENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "&New Note",       ID_NL_NOTE_NEW
+        MENUITEM SEPARATOR
+        MENUITEM "&Close",          ID_NL_FILE_CLOSE
+    END
+    POPUP "&Note"
+    BEGIN
+        MENUITEM "&Edit",           ID_NL_NOTE_EDIT
+        MENUITEM "&Delete",         ID_NL_NOTE_DELETE
+    END
+END
+
+// String table
+STRINGTABLE
+BEGIN
+    IDS_APP_NAME             "UltraNote"
+    IDS_CONFIRM_DELETE       "Delete this note?"
+    IDS_CONFIRM_DELETE_MULTI "Delete %d notes?"
+    IDS_TRAY_TOOLTIP         "UltraNote"
+END

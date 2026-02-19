@@ -1,0 +1,59 @@
+; UltraNote Language File - English
+
+[info]
+name=English
+code=en
+
+[strings]
+menu.new_note=&New Note
+menu.show_notes=&Show Notes
+menu.hide_notes=&Hide Notes
+menu.note_list=Note &List...
+menu.settings=&Settings
+menu.language=&Language
+menu.exit=E&xit
+
+note.edit=&Edit	Enter
+note.copy=&Copy	C
+note.delete=&Delete	Del
+note.hide=&Hide
+note.always_on_top=Always on &Top	O
+note.new_note=&New Note
+note.rename=&Rename	F2
+note.no_folder=(No Folder)
+note.all_folders=All Notes
+note.enter_title=Enter note title:
+
+notelist.title=UltraNote - Note List
+notelist.file=&File
+notelist.close=&Close
+notelist.note=&Note
+notelist.new_note=&New Note
+notelist.edit=&Edit
+notelist.delete=&Delete
+notelist.col_text=Note
+notelist.col_created=Created
+notelist.tb_new=New Note
+notelist.tb_edit=Edit
+notelist.tb_delete=Delete
+notelist.tb_show_all=Show All
+notelist.tb_hide_all=Hide All
+notelist.tb_rename=Rename
+notelist.col_title=Title
+notelist.col_folder=Folder
+notelist.rename=&Rename
+notelist.set_folder=Set &Folder
+notelist.options=&Options
+notelist.folder_menu=F&older
+
+folder.new=New Folder
+folder.rename=Rename Folder
+folder.delete=Delete Folder
+folder.enter_name=Enter folder name:
+folder.confirm_delete=Delete folder '%s'? Notes will be moved to 'No Folder'.
+
+confirm.delete_one=Delete this note?
+confirm.delete_multi=Delete %d notes?
+
+app.already_running=UltraNote is already running.
+note.empty=(empty)

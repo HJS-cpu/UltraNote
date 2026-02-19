@@ -1,0 +1,94 @@
+#pragma once
+
+#include <windows.h>
+#include <commctrl.h>
+#include <cstdint>
+#include "Note.h"
+
+class NoteWindow {
+public:
+    NoteWindow(NoteData* data, HINSTANCE hInst);
+    ~NoteWindow();
+
+    static bool RegisterWindowClass(HINSTANCE hInst);
+
+    HWND     GetHwnd() const { return m_hwnd; }
+    uint64_t GetNoteId() const { return m_data->id; }
+    NoteData* GetData() const { return m_data; }
+
+    void Show(bool show);
+    void BringToFront();
+
+    void SetSelected(bool selected);
+    bool IsSelected() const { return m_selected; }
+
+    void EnterEditMode();
+    void ExitEditMode(bool save);
+    bool IsEditing() const { return m_inEditMode; }
+
+    // Offset window position by delta (for multi-select drag)
+    void OffsetPosition(int dx, int dy);
+
+private:
+    static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
+
+    // Subclass proc for the EDIT control
+    static LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
+                                              LPARAM lParam, UINT_PTR subclassId,
+                                              DWORD_PTR refData);
+
+    // Painting
+    void Paint(HDC hdc);
+    void PaintBackground(HDC hdc, const RECT& rc);
+    void PaintBorder(HDC hdc, const RECT& rc);
+    void PaintText(HDC hdc, const RECT& rc);
+
+    // Hit testing: returns HTCLIENT for body, or resize HTXXX codes for edges
+    int HitTest(int x, int y) const;
+
+    // Drag/resize
+    void StartDrag(int x, int y);
+    void UpdateDrag(int x, int y);
+    void EndDrag();
+
+    void StartResize(int hitZone, int x, int y);
+    void UpdateResize(int x, int y);
+    void EndResize();
+
+    // Context menu
+    void ShowContextMenu(int screenX, int screenY);
+    void HandleMenuCommand(int cmd);
+
+    // Sync NoteData position from current window rect
+    void SyncDataFromWindow();
+
+    // Notify application of changes
+    void NotifyChanged();
+
+    HWND       m_hwnd          = nullptr;
+    HWND       m_hEditCtrl     = nullptr;
+    NoteData*  m_data          = nullptr;
+    HINSTANCE  m_hInst         = nullptr;
+    HBRUSH     m_hEditBrush    = nullptr;
+
+    bool       m_selected      = false;
+    bool       m_inEditMode    = false;
+
+    // Drag state
+    bool       m_dragging      = false;
+    POINT      m_dragStartCursor = {};
+    POINT      m_dragStartPos    = {};
+
+    // Resize state
+    bool       m_resizing      = false;
+    int        m_resizeHitZone = 0;
+    POINT      m_resizeStartCursor = {};
+    RECT       m_resizeStartRect   = {};
+
+    static constexpr int RESIZE_BORDER = 6;
+    static constexpr int MIN_WIDTH     = 80;
+    static constexpr int MIN_HEIGHT    = 40;
+    static constexpr int TEXT_PADDING  = 6;
+    static constexpr UINT_PTR EDIT_SUBCLASS_ID = 1;
+};
