@@ -154,7 +154,7 @@ Every push to `master` triggers automatic Debug and Release builds. Download the
 
 ## 🙏 Credits
 
-- **Original concept:** [ATnotes](http://www.atnotes.de/) by Thomas Ascher (1999–2005)
+- **Inspired by** [ATnotes](http://www.atnotes.de/) by Thomas Ascher
 - **Modern recreation:** HJS (2026)
 
 ---
