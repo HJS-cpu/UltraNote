@@ -19,6 +19,7 @@ public:
     bool IsVisible() const;
 
     void Refresh();
+    void SetPreviewEnabled(bool enabled);
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -42,6 +43,8 @@ private:
     void DeleteSelectedNotes();
     void RenameSelectedNote();
     void ShowSetFolderMenu();
+    void ToggleNoteHidden(uint64_t noteId);
+    void ToggleNoteAlwaysOnTop(uint64_t noteId);
 
     // Folder context menu
     void ShowFolderContextMenu(int screenX, int screenY);
@@ -71,7 +74,7 @@ private:
     int  m_sortColumn    = -1;
     bool m_sortAscending = true;
 
-    enum Column { COL_TITLE = 0, COL_TEXT, COL_FOLDER, COL_CREATED, COL_COUNT };
+    enum Column { COL_TITLE = 0, COL_TEXT, COL_FOLDER, COL_HIDDEN, COL_ONTOP, COL_CREATED, COL_COUNT };
 
     // Splitter between folder list and listview
     int  m_folderListWidth   = 150;

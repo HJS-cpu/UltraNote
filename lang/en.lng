@@ -6,11 +6,13 @@ code=en
 
 [strings]
 menu.new_note=&New Note
+menu.paste_note=&Paste as Note
 menu.show_notes=&Show Notes
 menu.hide_notes=&Hide Notes
 menu.note_list=Note &List...
 menu.settings=&Settings
 menu.language=&Language
+menu.about=&About
 menu.exit=E&xit
 
 note.edit=&Edit	Enter
@@ -43,6 +45,8 @@ notelist.col_title=Title
 notelist.col_folder=Folder
 notelist.rename=&Rename
 notelist.set_folder=Set &Folder
+notelist.col_hidden=Hidden
+notelist.col_ontop=On Top
 notelist.options=&Options
 notelist.preview=&Preview
 notelist.folder_menu=F&older
@@ -58,3 +62,54 @@ confirm.delete_multi=Delete %d notes?
 
 app.already_running=UltraNote is already running.
 note.empty=(empty)
+
+settings.title=UltraNote - Settings
+settings.ok=OK
+settings.cancel=Cancel
+settings.apply=Apply
+settings.change=Change...
+
+settings.tab_layout=Layout
+settings.tab_keyboard=Keyboard
+settings.tab_general=General
+settings.tab_misc=Misc
+
+settings.bg_color=Background color:
+settings.text_color=Text color:
+settings.border_color=Border color:
+settings.font=Font:
+settings.preview_label=Preview:
+settings.preview_text=This is a sample text for the note preview.
+
+settings.sc_action=Action
+settings.sc_key=Shortcut
+settings.sc_newkey=New key:
+settings.sc_apply=Apply
+settings.sc_default=Default
+settings.sc_edit=Edit
+settings.sc_delete=Delete
+settings.sc_rename=Rename
+settings.sc_ontop=Always on Top
+settings.sc_hide=Hide
+settings.sc_copy=Copy
+settings.sc_newnote=New Note
+settings.sc_global_new=New Note (Global)
+settings.sc_global_list=Note List (Global)
+
+settings.autosave=Autosave interval:
+settings.seconds=sec.
+settings.confirm_delete=Show delete confirmation
+settings.preview_enabled=Enable preview in note list
+settings.preview_delay=Preview delay:
+settings.tray_dblclick=Tray double-click:
+settings.tray_newnote=New Note
+settings.tray_notelist=Open Note List
+settings.tray_showall=Show All
+settings.language=Language:
+
+settings.newnote_x=New note - Position X:
+settings.newnote_y=New note - Position Y:
+settings.cascade_step=Cascade - Step size:
+settings.cascade_reset=Cascade - Reset at:
+settings.default_folder=Default folder:
+settings.px=px

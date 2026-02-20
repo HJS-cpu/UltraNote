@@ -485,21 +485,19 @@ std::vector<NoteData> Storage::LoadNotes(uint64_t& outNextId,
 }
 
 // ============================================================================
-// Settings (simple int key-value store)
+// Settings (mixed int + string key-value store)
 // ============================================================================
 
-std::map<std::wstring, int> Storage::LoadSettings() {
-    std::map<std::wstring, int> settings;
+static std::wstring ReadSettingsFile() {
     std::wstring filePath = GetExeDirectory() + L"\\settings.json";
-
     FILE* fp = nullptr;
     if (_wfopen_s(&fp, filePath.c_str(), L"rb") != 0 || !fp)
-        return settings;
+        return {};
 
     fseek(fp, 0, SEEK_END);
     long fileSize = ftell(fp);
     fseek(fp, 0, SEEK_SET);
-    if (fileSize <= 0) { fclose(fp); return settings; }
+    if (fileSize <= 0) { fclose(fp); return {}; }
 
     std::string utf8(static_cast<size_t>(fileSize), '\0');
     fread(&utf8[0], 1, static_cast<size_t>(fileSize), fp);
@@ -507,44 +505,67 @@ std::map<std::wstring, int> Storage::LoadSettings() {
 
     int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(),
                                        static_cast<int>(utf8.size()), nullptr, 0);
-    if (wideLen <= 0) return settings;
+    if (wideLen <= 0) return {};
 
     std::wstring json(static_cast<size_t>(wideLen), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(),
                         static_cast<int>(utf8.size()), &json[0], wideLen);
+    return json;
+}
 
+static void ParseSettingsJson(const std::wstring& json,
+                               std::map<std::wstring, int>* intOut,
+                               std::map<std::wstring, std::wstring>* strOut) {
     const wchar_t* p = json.c_str();
-    if (!Expect(p, L'{')) return settings;
+    Storage::SkipWhitespace(p);
+    if (*p != L'{') return;
+    ++p;
 
     while (*p && *p != L'}') {
-        SkipWhitespace(p);
+        Storage::SkipWhitespace(p);
         if (*p == L'}') break;
 
         std::wstring key;
-        if (!ParseString(p, key)) break;
-        if (!Expect(p, L':')) break;
+        if (!Storage::ParseString(p, key)) break;
+        Storage::SkipWhitespace(p);
+        if (*p != L':') break;
+        ++p;
+        Storage::SkipWhitespace(p);
 
-        int64_t val;
-        if (!ParseInt(p, val)) break;
-        settings[key] = static_cast<int>(val);
+        if (*p == L'"') {
+            // String value
+            std::wstring val;
+            if (!Storage::ParseString(p, val)) break;
+            if (strOut) (*strOut)[key] = val;
+        } else {
+            // Int value
+            int64_t val;
+            if (!Storage::ParseInt(p, val)) break;
+            if (intOut) (*intOut)[key] = static_cast<int>(val);
+        }
 
-        SkipWhitespace(p);
+        Storage::SkipWhitespace(p);
         if (*p == L',') ++p;
     }
+}
 
+std::map<std::wstring, int> Storage::LoadSettings() {
+    std::map<std::wstring, int> settings;
+    std::wstring json = ReadSettingsFile();
+    if (!json.empty())
+        ParseSettingsJson(json, &settings, nullptr);
     return settings;
 }
 
-bool Storage::SaveSettings(const std::map<std::wstring, int>& settings) {
-    std::wstring json = L"{\n";
-    size_t i = 0;
-    for (auto& [key, val] : settings) {
-        json += L"  \"" + key + L"\": " + std::to_wstring(val);
-        if (++i < settings.size()) json += L",";
-        json += L"\n";
-    }
-    json += L"}\n";
+std::map<std::wstring, std::wstring> Storage::LoadSettingsStr() {
+    std::map<std::wstring, std::wstring> settings;
+    std::wstring json = ReadSettingsFile();
+    if (!json.empty())
+        ParseSettingsJson(json, nullptr, &settings);
+    return settings;
+}
 
+static bool WriteSettingsFile(const std::wstring& json) {
     std::wstring filePath = GetExeDirectory() + L"\\settings.json";
     std::wstring tmpPath = filePath + L".tmp";
 
@@ -571,4 +592,35 @@ bool Storage::SaveSettings(const std::map<std::wstring, int>& settings) {
         return false;
     }
     return true;
+}
+
+static std::wstring BuildSettingsJson(const std::map<std::wstring, int>& intSettings,
+                                       const std::map<std::wstring, std::wstring>& strSettings) {
+    std::wstring json = L"{\n";
+    size_t total = intSettings.size() + strSettings.size();
+    size_t i = 0;
+
+    for (auto& [key, val] : intSettings) {
+        json += L"  \"" + key + L"\": " + std::to_wstring(val);
+        if (++i < total) json += L",";
+        json += L"\n";
+    }
+    for (auto& [key, val] : strSettings) {
+        json += L"  \"" + key + L"\": \"" + Storage::EscapeJsonString(val) + L"\"";
+        if (++i < total) json += L",";
+        json += L"\n";
+    }
+    json += L"}\n";
+    return json;
+}
+
+bool Storage::SaveSettings(const std::map<std::wstring, int>& settings) {
+    // Preserve existing string settings
+    auto strSettings = LoadSettingsStr();
+    return WriteSettingsFile(BuildSettingsJson(settings, strSettings));
+}
+
+bool Storage::SaveAllSettings(const std::map<std::wstring, int>& intSettings,
+                               const std::map<std::wstring, std::wstring>& strSettings) {
+    return WriteSettingsFile(BuildSettingsJson(intSettings, strSettings));
 }

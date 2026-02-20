@@ -19,16 +19,25 @@ public:
     // Get the path to notes.json (in EXE directory)
     static std::wstring GetNotesFilePath();
 
-    // Simple key-value settings (settings.json)
+    // Key-value settings (settings.json)
+    // Supports int and string values in the same file
     static std::map<std::wstring, int> LoadSettings();
+    static std::map<std::wstring, std::wstring> LoadSettingsStr();
     static bool SaveSettings(const std::map<std::wstring, int>& settings);
+    static bool SaveAllSettings(const std::map<std::wstring, int>& intSettings,
+                                const std::map<std::wstring, std::wstring>& strSettings);
+
+    // JSON primitives (used by settings helpers)
+    static void SkipWhitespace(const wchar_t*& p);
+    static bool ParseString(const wchar_t*& p, std::wstring& out);
+    static bool ParseInt(const wchar_t*& p, int64_t& out);
+    static std::wstring EscapeJsonString(const std::wstring& s);
 
 private:
     // JSON writing helpers
     static std::wstring SerializeNotes(const std::vector<NoteData>& notes, uint64_t nextId,
                                         const std::vector<std::wstring>& folders);
     static std::wstring SerializeNote(const NoteData& note);
-    static std::wstring EscapeJsonString(const std::wstring& s);
     static std::wstring ColorToHex(COLORREF c);
 
     // JSON reading helpers
@@ -39,10 +48,7 @@ private:
     static COLORREF HexToColor(const std::wstring& hex);
 
     // Minimal JSON pull-parser helpers
-    static void SkipWhitespace(const wchar_t*& p);
     static bool Expect(const wchar_t*& p, wchar_t ch);
-    static bool ParseString(const wchar_t*& p, std::wstring& out);
-    static bool ParseInt(const wchar_t*& p, int64_t& out);
     static bool ParseBool(const wchar_t*& p, bool& out);
     static bool SkipValue(const wchar_t*& p);
     static bool ParseNoteObject(const wchar_t*& p, NoteData& note);

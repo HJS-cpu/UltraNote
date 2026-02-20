@@ -1,5 +1,8 @@
 #pragma once
 
+// Version
+#define ULTRANOTE_VERSION       L"v0.5 Alpha"
+
 // Icons
 #define IDI_APP                 101
 #define IDI_TRAY                102
@@ -10,6 +13,7 @@
 #define ID_TRAY_SHOWNOTES       202
 #define ID_TRAY_HIDENOTES       203
 #define ID_TRAY_NOTELIST        204
+#define ID_TRAY_PASTENOTE       205
 #define ID_TRAY_EXIT            209
 
 // Language selection (dynamic range: ID_LANG_BASE + index)
@@ -39,6 +43,62 @@
 
 // Preview toggle
 #define ID_NL_PREVIEW           310
+
+// Tray menu: Settings dialog + About
+#define ID_TRAY_SETTINGS        311
+#define ID_TRAY_ABOUT           313
+
+// Note list: Settings dialog + About
+#define ID_NL_SETTINGS          312
+#define ID_NL_ABOUT             314
+
+// Settings dialog control IDs
+#define IDC_SETTINGS_TAB        500
+#define IDC_SETTINGS_OK         501
+#define IDC_SETTINGS_CANCEL     502
+#define IDC_SETTINGS_APPLY      503
+
+// Tab 1: Layout
+#define IDC_BG_COLOR_SWATCH     510
+#define IDC_BG_COLOR_BTN        511
+#define IDC_TEXT_COLOR_SWATCH   512
+#define IDC_TEXT_COLOR_BTN      513
+#define IDC_BORDER_COLOR_SWATCH 514
+#define IDC_BORDER_COLOR_BTN    515
+#define IDC_FONT_DISPLAY        516
+#define IDC_FONT_BTN            517
+#define IDC_LAYOUT_PREVIEW      518
+
+// Tab 2: Keyboard
+#define IDC_SHORTCUT_LIST       520
+#define IDC_SHORTCUT_HOTKEY     521
+#define IDC_SHORTCUT_CHANGE     522
+#define IDC_SHORTCUT_DEFAULT    523
+
+// Tab 3: General
+#define IDC_AUTOSAVE_SPIN       530
+#define IDC_AUTOSAVE_EDIT       531
+#define IDC_CONFIRM_DELETE      532
+#define IDC_PREVIEW_ENABLED     533
+#define IDC_PREVIEW_DELAY_SPIN  534
+#define IDC_PREVIEW_DELAY_EDIT  535
+#define IDC_TRAY_DBLCLICK       536
+#define IDC_LANGUAGE            537
+
+// Global hotkey IDs (for RegisterHotKey)
+#define IDH_GLOBAL_NEWNOTE      1
+#define IDH_GLOBAL_NOTELIST     2
+
+// Tab 4: Misc
+#define IDC_NEWNOTE_X_EDIT      540
+#define IDC_NEWNOTE_X_SPIN      541
+#define IDC_NEWNOTE_Y_EDIT      542
+#define IDC_NEWNOTE_Y_SPIN      543
+#define IDC_CASCADE_STEP_EDIT   544
+#define IDC_CASCADE_STEP_SPIN   545
+#define IDC_CASCADE_RESET_EDIT  546
+#define IDC_CASCADE_RESET_SPIN  547
+#define IDC_DEFAULT_FOLDER      548
 
 // Folder management
 #define ID_NL_FOLDER_NEW        240

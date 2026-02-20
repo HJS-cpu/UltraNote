@@ -281,27 +281,34 @@ void NoteWindow::PaintBackground(HDC hdc, const RECT& rc) {
 }
 
 void NoteWindow::PaintBorder(HDC hdc, const RECT& rc) {
+    // Always draw solid border in the configured border color
+    HPEN pen = CreatePen(PS_SOLID, 1, m_data->layout.borderColor);
+    HGDIOBJ oldPen = SelectObject(hdc, pen);
+    HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+
     if (m_selected) {
-        // Dotted border for selected notes (like ATnotes)
+        // Selection indicator: dotted inner rectangle with contrasting color
+        COLORREF selColor = RGB(0, 0, 0);
+        // Use white dots if border is dark
+        int brightness = GetRValue(m_data->layout.borderColor) +
+                         GetGValue(m_data->layout.borderColor) +
+                         GetBValue(m_data->layout.borderColor);
+        if (brightness < 384) selColor = RGB(255, 255, 255);
+
         LOGBRUSH lb = {};
         lb.lbStyle = BS_SOLID;
-        lb.lbColor = RGB(0, 0, 0);
-        HPEN pen = ExtCreatePen(PS_COSMETIC | PS_DOT, 1, &lb, 0, nullptr);
-        HGDIOBJ oldPen = SelectObject(hdc, pen);
-        HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
-        Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
-        SelectObject(hdc, oldBrush);
-        SelectObject(hdc, oldPen);
-        DeleteObject(pen);
-    } else {
-        // Normal solid border
-        HPEN pen = CreatePen(PS_SOLID, 1, m_data->layout.borderColor);
-        HGDIOBJ oldPen = SelectObject(hdc, pen);
-        HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
-        Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
-        SelectObject(hdc, oldBrush);
-        SelectObject(hdc, oldPen);
-        DeleteObject(pen);
+        lb.lbColor = selColor;
+        HPEN dotPen = ExtCreatePen(PS_COSMETIC | PS_DOT, 1, &lb, 0, nullptr);
+        HGDIOBJ oldPen2 = SelectObject(hdc, dotPen);
+        HGDIOBJ oldBrush2 = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        Rectangle(hdc, rc.left + 2, rc.top + 2, rc.right - 2, rc.bottom - 2);
+        SelectObject(hdc, oldBrush2);
+        SelectObject(hdc, oldPen2);
+        DeleteObject(dotPen);
     }
 }
 

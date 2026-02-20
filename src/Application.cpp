@@ -1,12 +1,14 @@
 #include "Application.h"
 #include "NoteWindow.h"
 #include "NoteListWindow.h"
+#include "SettingsDialog.h"
 #include "Storage.h"
 #include "Localization.h"
 #include "Utils.h"
 #include "Resource.h"
 #include <algorithm>
 #include <ctime>
+#include <shellapi.h>
 
 static const wchar_t* APP_WND_CLASS = L"UltraNoteApp";
 static const wchar_t* MUTEX_NAME    = L"UltraNoteInstance";
@@ -53,8 +55,8 @@ bool Application::Initialize(HINSTANCE hInst) {
         }
     }
 
-    // Start auto-save timer
-    SetTimer(m_hAppWnd, IDT_AUTOSAVE, AUTOSAVE_INTERVAL_MS, nullptr);
+    // Apply saved settings (autosave interval, cascade positions, etc.)
+    ApplySettings();
 
     return true;
 }
@@ -71,6 +73,7 @@ int Application::Run() {
 
 void Application::Shutdown() {
     SaveAll();
+    UnregisterGlobalHotkeys();
     KillTimer(m_hAppWnd, IDT_AUTOSAVE);
     RemoveTrayIcon();
 
@@ -122,26 +125,27 @@ LRESULT Application::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             if (trayMsg == WM_RBUTTONUP) {
                 ShowTrayMenu();
             } else if (trayMsg == WM_LBUTTONDBLCLK) {
-                CreateNewNote();
+                auto data = SettingsDialog::LoadFromStorage();
+                switch (data.trayDoubleClick) {
+                    case 1:  ToggleNoteList(); break;
+                    case 2:  ShowAllNotes(); break;
+                    default: CreateNewNote(); break;
+                }
             }
             return 0;
         }
 
         case WM_COMMAND: {
             UINT cmd = LOWORD(wParam);
-            if (cmd >= ID_LANG_BASE && cmd <= ID_LANG_MAX) {
-                size_t idx = cmd - ID_LANG_BASE;
-                if (idx < m_availableLangs.size()) {
-                    ChangeLanguage(m_availableLangs[idx].first);
-                }
-                return 0;
-            }
             switch (cmd) {
-                case ID_TRAY_NEWNOTE:   CreateNewNote(); break;
-                case ID_TRAY_SHOWNOTES: ShowAllNotes(); break;
-                case ID_TRAY_HIDENOTES: HideAllNotes(); break;
-                case ID_TRAY_NOTELIST:  ToggleNoteList(); break;
-                case ID_TRAY_EXIT:      PostQuitMessage(0); break;
+                case ID_TRAY_NEWNOTE:    CreateNewNote(); break;
+                case ID_TRAY_PASTENOTE:  CreateNoteFromClipboard(); break;
+                case ID_TRAY_SHOWNOTES:  ShowAllNotes(); break;
+                case ID_TRAY_HIDENOTES:  HideAllNotes(); break;
+                case ID_TRAY_NOTELIST:   ToggleNoteList(); break;
+                case ID_TRAY_SETTINGS:   ShowSettingsDialog(); break;
+                case ID_TRAY_ABOUT:      ShowAboutDialog(m_hAppWnd); break;
+                case ID_TRAY_EXIT:       PostQuitMessage(0); break;
             }
             return 0;
         }
@@ -155,6 +159,15 @@ LRESULT Application::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         case WM_NOTE_REQUEST_DELETE: {
             uint64_t id = static_cast<uint64_t>(wParam);
             RequestDeleteNote(id);
+            return 0;
+        }
+
+        case WM_HOTKEY: {
+            if (wParam == IDH_GLOBAL_NEWNOTE) {
+                CreateNewNote();
+            } else if (wParam == IDH_GLOBAL_NOTELIST) {
+                ToggleNoteList();
+            }
             return 0;
         }
 
@@ -204,7 +217,8 @@ void Application::LoadMenuBitmaps() {
         SIID_DELETE,        // Exit / Delete
         SIID_RENAME,        // Edit
         SIID_LOCK,          // Always on Top (pin-like)
-        SIID_DOCASSOC,      // Rename (note title)
+        SIID_DOCASSOC,      // Rename (note title) / Paste as Note
+        SIID_HELP,          // About
     };
     for (auto id : icons) {
         if (m_menuBitmaps.find(static_cast<int>(id)) == m_menuBitmaps.end()) {
@@ -234,12 +248,157 @@ void Application::AppendMenuItem(HMENU hMenu, UINT id, const wchar_t* text,
     InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
 }
 
+// Subclass proc for the about-dialog link label: hover tracking + hand cursor + click
+static LRESULT CALLBACK AboutLinkSubclassProc(HWND hwnd, UINT msg,
+                                               WPARAM wParam, LPARAM lParam,
+                                               UINT_PTR /*subId*/, DWORD_PTR /*refData*/) {
+    switch (msg) {
+        case WM_MOUSEMOVE: {
+            BOOL hovering = static_cast<BOOL>(reinterpret_cast<INT_PTR>(
+                GetPropW(hwnd, L"hover")));
+            if (!hovering) {
+                SetPropW(hwnd, L"hover", reinterpret_cast<HANDLE>(1));
+                InvalidateRect(hwnd, nullptr, TRUE);
+                TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+                TrackMouseEvent(&tme);
+            }
+            break;
+        }
+        case WM_MOUSELEAVE:
+            SetPropW(hwnd, L"hover", reinterpret_cast<HANDLE>(0));
+            InvalidateRect(hwnd, nullptr, TRUE);
+            break;
+        case WM_SETCURSOR:
+            SetCursor(LoadCursorW(nullptr, IDC_HAND));
+            return TRUE;
+        case WM_LBUTTONUP:
+            ShellExecuteW(hwnd, L"open",
+                          L"https://github.com/HJS-cpu/UltaNote",
+                          nullptr, nullptr, SW_SHOWNORMAL);
+            return 0;
+        case WM_NCDESTROY:
+            RemovePropW(hwnd, L"hover");
+            RemoveWindowSubclass(hwnd, AboutLinkSubclassProc, 0);
+            break;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void Application::ShowAboutDialog(HWND hParent) {
+    // Build in-memory dialog template
+    alignas(4) BYTE buf[2048] = {};
+    BYTE* p = buf;
+
+    auto writeStr = [&p](const wchar_t* s) {
+        size_t bytes = (wcslen(s) + 1) * sizeof(wchar_t);
+        memcpy(p, s, bytes);
+        p += bytes;
+    };
+    auto align4 = [&p]() {
+        p = reinterpret_cast<BYTE*>((reinterpret_cast<uintptr_t>(p) + 3) & ~3);
+    };
+
+    auto* dlg = reinterpret_cast<DLGTEMPLATE*>(p);
+    dlg->style = DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    dlg->cdit = 3;  // static text, link static, OK button
+    dlg->cx = 210;
+    dlg->cy = 95;
+    p += sizeof(DLGTEMPLATE);
+
+    // Menu (none), Class (default)
+    *reinterpret_cast<WORD*>(p) = 0; p += sizeof(WORD);
+    *reinterpret_cast<WORD*>(p) = 0; p += sizeof(WORD);
+
+    // Title - strip & accelerator prefix
+    const wchar_t* title = Ls(L"menu.about").c_str();
+    std::wstring cleanTitle;
+    for (const wchar_t* t = title; *t; ++t)
+        if (*t != L'&') cleanTitle += *t;
+    writeStr(cleanTitle.c_str());
+    align4();
+
+    // Control 1: Static text (version + copyright)
+    auto* item1 = reinterpret_cast<DLGITEMTEMPLATE*>(p);
+    item1->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
+    item1->x = 10; item1->y = 10; item1->cx = 190; item1->cy = 36;
+    item1->id = 1000;
+    p += sizeof(DLGITEMTEMPLATE);
+    *reinterpret_cast<WORD*>(p) = 0xFFFF; p += sizeof(WORD);
+    *reinterpret_cast<WORD*>(p) = 0x0082; p += sizeof(WORD);
+    std::wstring staticText = L"UltraNote ";
+    staticText += ULTRANOTE_VERSION;
+    staticText += L"\n\n\u00A9 2026 by HJS (Hans Joachim Schlingensief)";
+    writeStr(staticText.c_str());
+    *reinterpret_cast<WORD*>(p) = 0; p += sizeof(WORD);
+    align4();
+
+    // Control 2: Static label as clickable link (SS_CENTER | SS_NOTIFY)
+    auto* item2 = reinterpret_cast<DLGITEMTEMPLATE*>(p);
+    item2->style = WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOTIFY;
+    item2->x = 10; item2->y = 52; item2->cx = 190; item2->cy = 10;
+    item2->id = 1001;
+    p += sizeof(DLGITEMTEMPLATE);
+    *reinterpret_cast<WORD*>(p) = 0xFFFF; p += sizeof(WORD);
+    *reinterpret_cast<WORD*>(p) = 0x0082; p += sizeof(WORD);
+    writeStr(L"github.com/HJS-cpu/UltaNote");
+    *reinterpret_cast<WORD*>(p) = 0; p += sizeof(WORD);
+    align4();
+
+    // Control 3: OK button
+    auto* item3 = reinterpret_cast<DLGITEMTEMPLATE*>(p);
+    item3->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP;
+    item3->x = 80; item3->y = 73; item3->cx = 50; item3->cy = 14;
+    item3->id = IDOK;
+    p += sizeof(DLGITEMTEMPLATE);
+    *reinterpret_cast<WORD*>(p) = 0xFFFF; p += sizeof(WORD);
+    *reinterpret_cast<WORD*>(p) = 0x0080; p += sizeof(WORD);
+    writeStr(L"OK");
+    *reinterpret_cast<WORD*>(p) = 0; p += sizeof(WORD);
+
+    // Dialog proc
+    auto dlgProc = [](HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) -> INT_PTR {
+        switch (msg) {
+            case WM_INITDIALOG: {
+                // Subclass the link label for hover tracking
+                HWND hLink = GetDlgItem(hDlg, 1001);
+                SetWindowSubclass(hLink, AboutLinkSubclassProc, 0, 0);
+                return TRUE;
+            }
+            case WM_CTLCOLORSTATIC: {
+                HWND hCtrl = reinterpret_cast<HWND>(lParam);
+                if (GetDlgCtrlID(hCtrl) == 1001) {
+                    HDC hdc = reinterpret_cast<HDC>(wParam);
+                    BOOL hovering = static_cast<BOOL>(reinterpret_cast<INT_PTR>(
+                        GetPropW(hCtrl, L"hover")));
+                    SetTextColor(hdc, hovering ? RGB(200, 50, 50) : RGB(0, 80, 180));
+                    SetBkMode(hdc, TRANSPARENT);
+                    return reinterpret_cast<INT_PTR>(GetStockObject(NULL_BRUSH));
+                }
+                break;
+            }
+            case WM_COMMAND:
+                if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
+                    EndDialog(hDlg, 0);
+                    return TRUE;
+                }
+                break;
+        }
+        return FALSE;
+    };
+
+    DialogBoxIndirectParamW(m_hInst,
+                            reinterpret_cast<DLGTEMPLATE*>(buf),
+                            hParent, dlgProc, 0);
+}
+
 void Application::ShowTrayMenu() {
     HMENU hPopup = CreatePopupMenu();
     if (!hPopup) return;
 
     AppendMenuItem(hPopup, ID_TRAY_NEWNOTE, Ls(L"menu.new_note").c_str(),
                    SIID_DOCNOASSOC);
+    AppendMenuItem(hPopup, ID_TRAY_PASTENOTE, Ls(L"menu.paste_note").c_str(),
+                   SIID_DOCASSOC);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
@@ -255,32 +414,12 @@ void Application::ShowTrayMenu() {
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
-    // Settings > Language submenu
-    HMENU hLangMenu = CreatePopupMenu();
-    auto langs = Localization::Get().GetAvailableLanguages();
-    const auto& currentLang = Localization::Get().GetCurrentLanguage();
-    m_availableLangs = langs;
-    for (size_t i = 0; i < langs.size() && i < (ID_LANG_MAX - ID_LANG_BASE + 1); ++i) {
-        UINT flags = MF_STRING;
-        if (langs[i].first == currentLang) flags |= MF_CHECKED;
-        AppendMenuW(hLangMenu, flags, ID_LANG_BASE + static_cast<UINT>(i),
-                    langs[i].second.c_str());
-    }
-
-    HMENU hSettingsMenu = CreatePopupMenu();
-    AppendMenuW(hSettingsMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hLangMenu),
-                Ls(L"menu.language").c_str());
-
-    // Insert Settings as popup with icon
-    {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_STRING | MIIM_SUBMENU | MIIM_BITMAP;
-        mii.hSubMenu   = hSettingsMenu;
-        mii.dwTypeData = const_cast<wchar_t*>(Ls(L"menu.settings").c_str());
-        mii.hbmpItem   = GetMenuBitmap(SIID_WORLD);
-        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
-    }
+    // Settings menu entry (opens the settings dialog with language tab etc.)
+    AppendMenuItem(hPopup, ID_TRAY_SETTINGS, Ls(L"menu.settings").c_str(),
+                   SIID_WORLD);
+    AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
+    AppendMenuItem(hPopup, ID_TRAY_ABOUT, Ls(L"menu.about").c_str(),
+                   SIID_HELP);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
@@ -303,6 +442,8 @@ void Application::ShowTrayMenu() {
 // ============================================================================
 
 NoteWindow* Application::CreateNewNote() {
+    auto settings = SettingsDialog::LoadFromStorage();
+
     NoteData note;
     note.id = m_nextId++;
     note.x = m_cascadeX;
@@ -310,17 +451,52 @@ NoteWindow* Application::CreateNewNote() {
     note.createdAt = static_cast<int64_t>(std::time(nullptr));
     note.modifiedAt = note.createdAt;
 
+    // Apply default layout from settings
+    note.layout.backgroundColor = settings.bgColor;
+    note.layout.textColor       = settings.textColor;
+    note.layout.borderColor     = settings.borderColor;
+    note.layout.fontFace        = settings.fontFace;
+    note.layout.fontSizePts     = settings.fontSize;
+    note.layout.fontBold        = settings.fontBold;
+    note.layout.fontItalic      = settings.fontItalic;
+
+    // Apply default folder from settings
+    note.folder = settings.defaultFolder;
+
     // Cascade position for next note
-    m_cascadeX += 20;
-    m_cascadeY += 20;
-    if (m_cascadeX > 500) m_cascadeX = 100;
-    if (m_cascadeY > 500) m_cascadeY = 100;
+    m_cascadeX += settings.cascadeStep;
+    m_cascadeY += settings.cascadeStep;
+    if (m_cascadeX > settings.cascadeReset) m_cascadeX = settings.newNoteX;
+    if (m_cascadeY > settings.cascadeReset) m_cascadeY = settings.newNoteY;
 
     m_notes.push_back(std::move(note));
     NoteWindow* wnd = CreateNoteWindow(m_notes.back());
 
     m_dirty = true;
     RefreshNoteList();
+    return wnd;
+}
+
+NoteWindow* Application::CreateNoteFromClipboard() {
+    std::wstring clipText;
+    if (OpenClipboard(m_hAppWnd)) {
+        HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+        if (hData) {
+            const wchar_t* pText = static_cast<const wchar_t*>(GlobalLock(hData));
+            if (pText) {
+                clipText = pText;
+                GlobalUnlock(hData);
+            }
+        }
+        CloseClipboard();
+    }
+    if (clipText.empty()) return nullptr;
+
+    NoteWindow* wnd = CreateNewNote();
+    if (wnd) {
+        wnd->GetData()->text = clipText;
+        InvalidateRect(wnd->GetHwnd(), nullptr, TRUE);
+    }
     return wnd;
 }
 
@@ -338,9 +514,12 @@ void Application::RequestDeleteNote(uint64_t id) {
         return;
     }
 
-    int result = MessageBoxW(nullptr, Ls(L"confirm.delete_one").c_str(), L"UltraNote",
-                              MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
-    if (result != IDYES) return;
+    auto settings = SettingsDialog::LoadFromStorage();
+    if (settings.confirmDelete) {
+        int result = MessageBoxW(nullptr, Ls(L"confirm.delete_one").c_str(), L"UltraNote",
+                                  MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
+        if (result != IDYES) return;
+    }
 
     // Destroy window
     auto it = m_noteWindows.find(id);
@@ -362,16 +541,19 @@ void Application::DeleteSelectedNotes() {
     auto selected = GetSelectedIds();
     if (selected.empty()) return;
 
-    std::wstring msg;
-    if (selected.size() == 1) {
-        msg = Ls(L"confirm.delete_one");
-    } else {
-        msg = FormatString(Ls(L"confirm.delete_multi").c_str(), static_cast<int>(selected.size()));
-    }
+    auto settingsData = SettingsDialog::LoadFromStorage();
+    if (settingsData.confirmDelete) {
+        std::wstring msg;
+        if (selected.size() == 1) {
+            msg = Ls(L"confirm.delete_one");
+        } else {
+            msg = FormatString(Ls(L"confirm.delete_multi").c_str(), static_cast<int>(selected.size()));
+        }
 
-    int result = MessageBoxW(nullptr, msg.c_str(), L"UltraNote",
-                              MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
-    if (result != IDYES) return;
+        int result = MessageBoxW(nullptr, msg.c_str(), L"UltraNote",
+                                  MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
+        if (result != IDYES) return;
+    }
 
     for (uint64_t id : selected) {
         auto it = m_noteWindows.find(id);
@@ -655,6 +837,95 @@ void Application::RenameNote(uint64_t noteId, const std::wstring& newTitle) {
 // ============================================================================
 // Language
 // ============================================================================
+
+// ============================================================================
+// Settings
+// ============================================================================
+
+void Application::ShowSettingsDialog() {
+    SettingsDialog::Show(m_hAppWnd);
+}
+
+void Application::ApplySettings() {
+    auto data = SettingsDialog::LoadFromStorage();
+
+    // Apply cascade start position
+    m_cascadeX = data.newNoteX;
+    m_cascadeY = data.newNoteY;
+
+    // Apply autosave timer
+    KillTimer(m_hAppWnd, IDT_AUTOSAVE);
+    SetTimer(m_hAppWnd, IDT_AUTOSAVE,
+             static_cast<UINT>(data.autosaveInterval) * 1000, nullptr);
+
+    // Apply default layout to all existing notes and repaint
+    NoteLayout defaultLayout;
+    defaultLayout.backgroundColor = data.bgColor;
+    defaultLayout.textColor       = data.textColor;
+    defaultLayout.borderColor     = data.borderColor;
+    defaultLayout.fontFace        = data.fontFace;
+    defaultLayout.fontSizePts     = data.fontSize;
+    defaultLayout.fontBold        = data.fontBold;
+    defaultLayout.fontItalic      = data.fontItalic;
+
+    for (auto& note : m_notes) {
+        // Preserve per-note alwaysOnTop
+        bool ontop = note.layout.alwaysOnTop;
+        note.layout = defaultLayout;
+        note.layout.alwaysOnTop = ontop;
+    }
+    for (auto& [id, wnd] : m_noteWindows) {
+        InvalidateRect(wnd->GetHwnd(), nullptr, TRUE);
+    }
+    m_dirty = true;
+
+    // Apply preview setting to note list
+    if (m_noteListWindow) {
+        m_noteListWindow->SetPreviewEnabled(data.previewEnabled);
+    }
+
+    // Register global hotkeys
+    RegisterGlobalHotkeys();
+
+    // Apply language if changed
+    if (data.language != Localization::Get().GetCurrentLanguage()) {
+        ChangeLanguage(data.language);
+    }
+}
+
+// Convert HOTKEYF_* flags to MOD_* flags for RegisterHotKey
+static UINT HotkeyModsToRegisterMods(BYTE mods) {
+    UINT result = MOD_NOREPEAT;
+    if (mods & HOTKEYF_CONTROL) result |= MOD_CONTROL;
+    if (mods & HOTKEYF_SHIFT)   result |= MOD_SHIFT;
+    if (mods & HOTKEYF_ALT)     result |= MOD_ALT;
+    return result;
+}
+
+void Application::RegisterGlobalHotkeys() {
+    UnregisterGlobalHotkeys();
+
+    auto data = SettingsDialog::LoadFromStorage();
+
+    // Register global new note hotkey
+    WORD hkNew = data.shortcuts[SC_GLOBAL_NEWNOTE];
+    if (hkNew != 0) {
+        RegisterHotKey(m_hAppWnd, IDH_GLOBAL_NEWNOTE,
+                       HotkeyModsToRegisterMods(HIBYTE(hkNew)), LOBYTE(hkNew));
+    }
+
+    // Register global note list hotkey
+    WORD hkList = data.shortcuts[SC_GLOBAL_NOTELIST];
+    if (hkList != 0) {
+        RegisterHotKey(m_hAppWnd, IDH_GLOBAL_NOTELIST,
+                       HotkeyModsToRegisterMods(HIBYTE(hkList)), LOBYTE(hkList));
+    }
+}
+
+void Application::UnregisterGlobalHotkeys() {
+    UnregisterHotKey(m_hAppWnd, IDH_GLOBAL_NEWNOTE);
+    UnregisterHotKey(m_hAppWnd, IDH_GLOBAL_NOTELIST);
+}
 
 void Application::ChangeLanguage(const std::wstring& langCode) {
     if (langCode == Localization::Get().GetCurrentLanguage()) return;

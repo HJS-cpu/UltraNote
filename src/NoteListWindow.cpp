@@ -1,6 +1,7 @@
 #include "NoteListWindow.h"
 #include "Application.h"
 #include "NoteWindow.h"
+#include "SettingsDialog.h"
 #include "Localization.h"
 #include "Storage.h"
 #include "Utils.h"
@@ -103,37 +104,11 @@ bool NoteListWindow::Create() {
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hFolderMenu),
                 Ls(L"notelist.folder_menu").c_str());
 
-    // Options menu with Settings > Language submenu
+    // Options menu
     HMENU hOptionsMenu = CreatePopupMenu();
-    HMENU hSettingsMenu = CreatePopupMenu();
-    HMENU hLangMenu = CreatePopupMenu();
-    auto langs = Localization::Get().GetAvailableLanguages();
-    const auto& currentLang = Localization::Get().GetCurrentLanguage();
-    for (size_t i = 0; i < langs.size() && i < (ID_LANG_MAX - ID_LANG_BASE + 1); ++i) {
-        UINT flags = MF_STRING;
-        if (langs[i].first == currentLang) flags |= MF_CHECKED;
-        AppendMenuW(hLangMenu, flags, ID_LANG_BASE + static_cast<UINT>(i),
-                    langs[i].second.c_str());
-    }
-    // Settings submenu with icon
-    {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_STRING | MIIM_SUBMENU | MIIM_BITMAP;
-        mii.hSubMenu   = hLangMenu;
-        mii.dwTypeData = const_cast<wchar_t*>(Ls(L"menu.language").c_str());
-        mii.hbmpItem   = app.GetMenuBitmap(SIID_WORLD);
-        InsertMenuItemW(hSettingsMenu, 0, TRUE, &mii);
-    }
-    {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_STRING | MIIM_SUBMENU | MIIM_BITMAP;
-        mii.hSubMenu   = hSettingsMenu;
-        mii.dwTypeData = const_cast<wchar_t*>(Ls(L"menu.settings").c_str());
-        mii.hbmpItem   = app.GetMenuBitmap(SIID_WORLD);
-        InsertMenuItemW(hOptionsMenu, 0, TRUE, &mii);
-    }
+    addItem(hOptionsMenu, ID_NL_SETTINGS, Ls(L"menu.settings").c_str(), SIID_WORLD);
+    AppendMenuW(hOptionsMenu, MF_SEPARATOR, 0, nullptr);
+    addItem(hOptionsMenu, ID_NL_ABOUT, Ls(L"menu.about").c_str(), SIID_HELP);
     AppendMenuW(hOptionsMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hOptionsMenu, MF_STRING | (m_previewEnabled ? MF_CHECKED : 0),
                 ID_NL_PREVIEW, Ls(L"notelist.preview").c_str());
@@ -230,14 +205,6 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
 
-            // Language selection - forward to app window
-            if (id >= ID_LANG_BASE && id <= ID_LANG_MAX) {
-                HWND appWnd = FindWindowW(L"UltraNoteApp", L"UltraNote");
-                if (appWnd)
-                    PostMessageW(appWnd, WM_COMMAND, wParam, 0);
-                return 0;
-            }
-
             // Folder assignment submenu
             if (id >= ID_NL_FOLDER_BASE && id <= ID_NL_FOLDER_MAX) {
                 size_t folderIdx = id - ID_NL_FOLDER_BASE;
@@ -276,6 +243,12 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     return 0;
                 case ID_NL_NOTE_DELETE:
                     DeleteSelectedNotes();
+                    return 0;
+                case ID_NL_SETTINGS:
+                    Application::Get().ShowSettingsDialog();
+                    return 0;
+                case ID_NL_ABOUT:
+                    Application::Get().ShowAboutDialog(m_hwnd);
                     return 0;
                 case ID_NL_SHOW_ALL:
                     Application::Get().ShowAllNotes();
@@ -345,6 +318,32 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                         SortByColumn(nmlv->iSubItem);
                         return 0;
                     }
+                    case NM_CLICK: {
+                        LVHITTESTINFO htInfo = {};
+                        GetCursorPos(&htInfo.pt);
+                        ScreenToClient(m_hListView, &htInfo.pt);
+                        int hitIdx = ListView_SubItemHitTest(m_hListView, &htInfo);
+                        if (hitIdx >= 0 && (htInfo.iSubItem == COL_HIDDEN || htInfo.iSubItem == COL_ONTOP)) {
+                            LVITEMW lvItem = {};
+                            lvItem.mask  = LVIF_PARAM;
+                            lvItem.iItem = hitIdx;
+                            ListView_GetItem(m_hListView, &lvItem);
+                            uint64_t noteId = static_cast<uint64_t>(lvItem.lParam);
+                            NoteData* note = Application::Get().FindNoteData(noteId);
+                            if (note) {
+                                if (htInfo.iSubItem == COL_HIDDEN) {
+                                    ToggleNoteHidden(noteId);
+                                    ListView_SetItemText(m_hListView, hitIdx, COL_HIDDEN,
+                                                         const_cast<LPWSTR>(note->isHidden ? L"\u2611" : L"\u2610"));
+                                } else {
+                                    ToggleNoteAlwaysOnTop(noteId);
+                                    ListView_SetItemText(m_hListView, hitIdx, COL_ONTOP,
+                                                         const_cast<LPWSTR>(note->layout.alwaysOnTop ? L"\u2611" : L"\u2610"));
+                                }
+                            }
+                        }
+                        break;
+                    }
                     case NM_DBLCLK:
                         EditSelectedNote();
                         return 0;
@@ -359,6 +358,55 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                         if (kd->wVKey == VK_F2) {
                             RenameSelectedNote();
                             return 0;
+                        }
+                        break;
+                    }
+                    case NM_CUSTOMDRAW: {
+                        auto* cd = reinterpret_cast<NMLVCUSTOMDRAW*>(lParam);
+                        switch (cd->nmcd.dwDrawStage) {
+                            case CDDS_PREPAINT:
+                                return CDRF_NOTIFYITEMDRAW;
+                            case CDDS_ITEMPREPAINT:
+                                return CDRF_NOTIFYSUBITEMDRAW;
+                            case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
+                                int sub = cd->iSubItem;
+                                if (sub == COL_HIDDEN || sub == COL_ONTOP) {
+                                    // Draw checkbox character larger and centered
+                                    RECT rc = {};
+                                    ListView_GetSubItemRect(m_hListView,
+                                        static_cast<int>(cd->nmcd.dwItemSpec),
+                                        sub, LVIR_BOUNDS, &rc);
+
+                                    // Get item text
+                                    wchar_t buf[4] = {};
+                                    ListView_GetItemText(m_hListView,
+                                        static_cast<int>(cd->nmcd.dwItemSpec),
+                                        sub, buf, 4);
+
+                                    // Create larger font for checkboxes
+                                    HFONT hLargeFont = CreateFontW(
+                                        20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                        CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                                        DEFAULT_PITCH, L"Segoe UI Symbol");
+                                    HFONT hOldFont = static_cast<HFONT>(
+                                        SelectObject(cd->nmcd.hdc, hLargeFont));
+
+                                    // Fill background with normal window color
+                                    SetBkColor(cd->nmcd.hdc, GetSysColor(COLOR_WINDOW));
+                                    SetTextColor(cd->nmcd.hdc, GetSysColor(COLOR_WINDOWTEXT));
+                                    ExtTextOutW(cd->nmcd.hdc, 0, 0, ETO_OPAQUE,
+                                                &rc, nullptr, 0, nullptr);
+
+                                    DrawTextW(cd->nmcd.hdc, buf, -1, &rc,
+                                              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+                                    SelectObject(cd->nmcd.hdc, hOldFont);
+                                    DeleteObject(hLargeFont);
+                                    return CDRF_SKIPDEFAULT;
+                                }
+                                return CDRF_DODEFAULT;
+                            }
                         }
                         break;
                     }
@@ -600,10 +648,23 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 GetClientRect(m_hListView, &lvRect);
 
                 int hitIdx = -1;
-                if (PtInRect(&lvRect, clientPt)) {
+                // Only show preview if cursor is actually over our ListView
+                // (also allow the preview note window itself, to avoid blink loops)
+                HWND hwndUnderCursor = WindowFromPoint(pt);
+                bool cursorOverList = (hwndUnderCursor == m_hListView ||
+                    hwndUnderCursor == ListView_GetHeader(m_hListView));
+                if (!cursorOverList && m_previewNoteId > 0) {
+                    NoteWindow* previewWnd = Application::Get().FindNoteWindow(m_previewNoteId);
+                    if (previewWnd && hwndUnderCursor == previewWnd->GetHwnd())
+                        cursorOverList = true;
+                }
+                if (PtInRect(&lvRect, clientPt) && cursorOverList) {
                     LVHITTESTINFO htInfo = {};
                     htInfo.pt = clientPt;
-                    hitIdx = ListView_HitTest(m_hListView, &htInfo);
+                    hitIdx = ListView_SubItemHitTest(m_hListView, &htInfo);
+                    // Only preview when hovering over the Note column
+                    if (hitIdx >= 0 && htInfo.iSubItem != COL_TEXT)
+                        hitIdx = -1;
                 }
 
                 if (hitIdx != m_previewPendingIdx) {
@@ -618,7 +679,8 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 } else if (hitIdx >= 0 && hitIdx != m_previewNoteIdx) {
                     // Still on same row, check if delay elapsed
                     DWORD elapsed = GetTickCount() - m_previewHoverStart;
-                    if (elapsed >= PREVIEW_DELAY_MS) {
+                    DWORD previewDelay = static_cast<DWORD>(SettingsDialog::LoadFromStorage().previewDelay);
+                    if (elapsed >= previewDelay) {
                         // Get note ID from ListView item
                         LVITEMW item = {};
                         item.mask  = LVIF_PARAM;
@@ -814,6 +876,17 @@ void NoteListWindow::SetupColumns() {
     col.pszText = const_cast<LPWSTR>(Ls(L"notelist.col_folder").c_str());
     ListView_InsertColumn(m_hListView, COL_FOLDER, &col);
 
+    col.cx = 70;
+    col.fmt = LVCFMT_CENTER;
+    col.pszText = const_cast<LPWSTR>(Ls(L"notelist.col_hidden").c_str());
+    ListView_InsertColumn(m_hListView, COL_HIDDEN, &col);
+
+    col.cx = 70;
+    col.fmt = LVCFMT_CENTER;
+    col.pszText = const_cast<LPWSTR>(Ls(L"notelist.col_ontop").c_str());
+    ListView_InsertColumn(m_hListView, COL_ONTOP, &col);
+
+    col.fmt = LVCFMT_LEFT;
     col.cx = 130;
     col.pszText = const_cast<LPWSTR>(Ls(L"notelist.col_created").c_str());
     ListView_InsertColumn(m_hListView, COL_CREATED, &col);
@@ -873,6 +946,12 @@ void NoteListWindow::PopulateList() {
             wcsftime(buf, 64, L"%Y-%m-%d %H:%M", &tm);
             ListView_SetItemText(m_hListView, idx, COL_CREATED, buf);
         }
+
+        // Checkbox columns
+        ListView_SetItemText(m_hListView, idx, COL_HIDDEN,
+                             const_cast<LPWSTR>(note.isHidden ? L"\u2611" : L"\u2610"));
+        ListView_SetItemText(m_hListView, idx, COL_ONTOP,
+                             const_cast<LPWSTR>(note.layout.alwaysOnTop ? L"\u2611" : L"\u2610"));
 
         ++insertIdx;
     }
@@ -974,11 +1053,12 @@ void NoteListWindow::LoadSettings() {
         }
     }
 
-    // Column widths (4 columns now)
+    // Column widths
     if (m_hListView) {
         const wchar_t* keys[] = {
             L"notelist.col0_width", L"notelist.col1_width",
-            L"notelist.col2_width", L"notelist.col3_width"
+            L"notelist.col2_width", L"notelist.col3_width",
+            L"notelist.col4_width", L"notelist.col5_width"
         };
         for (int i = 0; i < COL_COUNT; ++i) {
             auto it = settings.find(keys[i]);
@@ -1002,10 +1082,11 @@ void NoteListWindow::SaveSettings() {
     settings[L"notelist.preview"] = m_previewEnabled ? 1 : 0;
 
     if (m_hListView) {
-        settings[L"notelist.col0_width"] = ListView_GetColumnWidth(m_hListView, COL_TITLE);
-        settings[L"notelist.col1_width"] = ListView_GetColumnWidth(m_hListView, COL_TEXT);
-        settings[L"notelist.col2_width"] = ListView_GetColumnWidth(m_hListView, COL_FOLDER);
-        settings[L"notelist.col3_width"] = ListView_GetColumnWidth(m_hListView, COL_CREATED);
+        for (int i = 0; i < COL_COUNT; ++i) {
+            wchar_t key[32];
+            wsprintfW(key, L"notelist.col%d_width", i);
+            settings[key] = ListView_GetColumnWidth(m_hListView, i);
+        }
     }
 
     Storage::SaveSettings(settings);
@@ -1056,6 +1137,12 @@ int CALLBACK NoteListWindow::CompareFunc(LPARAM lp1, LPARAM lp2, LPARAM sortPara
         case COL_CREATED:
             if (n1->createdAt < n2->createdAt) result = -1;
             else if (n1->createdAt > n2->createdAt) result = 1;
+            break;
+        case COL_HIDDEN:
+            result = static_cast<int>(n1->isHidden) - static_cast<int>(n2->isHidden);
+            break;
+        case COL_ONTOP:
+            result = static_cast<int>(n1->layout.alwaysOnTop) - static_cast<int>(n2->layout.alwaysOnTop);
             break;
     }
 
@@ -1159,6 +1246,42 @@ void NoteListWindow::ShowSetFolderMenu() {
 }
 
 // ============================================================================
+// Toggle hidden / always-on-top from list
+// ============================================================================
+
+void NoteListWindow::ToggleNoteHidden(uint64_t noteId) {
+    auto& app = Application::Get();
+    NoteData* note = app.FindNoteData(noteId);
+    if (!note) return;
+
+    if (note->isHidden) {
+        // Show the note
+        app.BringNoteToFront(noteId);
+    } else {
+        // Hide the note
+        note->isHidden = true;
+        NoteWindow* wnd = app.FindNoteWindow(noteId);
+        if (wnd) wnd->Show(false);
+        app.MarkDirty();
+    }
+}
+
+void NoteListWindow::ToggleNoteAlwaysOnTop(uint64_t noteId) {
+    auto& app = Application::Get();
+    NoteData* note = app.FindNoteData(noteId);
+    if (!note) return;
+
+    note->layout.alwaysOnTop = !note->layout.alwaysOnTop;
+    NoteWindow* wnd = app.FindNoteWindow(noteId);
+    if (wnd) {
+        SetWindowPos(wnd->GetHwnd(),
+                     note->layout.alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
+                     0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    }
+    app.MarkDirty();
+}
+
+// ============================================================================
 // Context menus
 // ============================================================================
 
@@ -1249,6 +1372,25 @@ void NoteListWindow::DeleteFolderConfirm(const std::wstring& name) {
 // ============================================================================
 // Preview
 // ============================================================================
+
+void NoteListWindow::SetPreviewEnabled(bool enabled) {
+    m_previewEnabled = enabled;
+    // Update menu checkmark
+    HMENU hMenuBar = GetMenu(m_hwnd);
+    if (hMenuBar) {
+        int menuCount = GetMenuItemCount(hMenuBar);
+        HMENU hOptionsMenu = GetSubMenu(hMenuBar, menuCount - 1);
+        if (hOptionsMenu)
+            CheckMenuItem(hOptionsMenu, ID_NL_PREVIEW,
+                          MF_BYCOMMAND | (m_previewEnabled ? MF_CHECKED : MF_UNCHECKED));
+    }
+    if (m_previewEnabled) {
+        StartPreviewTimer();
+    } else {
+        StopPreviewTimer();
+        HidePreviewNote();
+    }
+}
 
 void NoteListWindow::StartPreviewTimer() {
     if (!m_previewTimerActive && m_hwnd) {

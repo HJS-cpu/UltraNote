@@ -6,11 +6,13 @@ code=de
 
 [strings]
 menu.new_note=&Neue Notiz
+menu.paste_note=Notiz ein&fügen
 menu.show_notes=Notizen &anzeigen
 menu.hide_notes=Notizen &verstecken
 menu.note_list=Notiz&liste...
 menu.settings=&Einstellungen
 menu.language=&Sprache
+menu.about=&Info
 menu.exit=&Beenden
 
 note.edit=&Bearbeiten	Enter
@@ -43,6 +45,8 @@ notelist.col_title=Titel
 notelist.col_folder=Ordner
 notelist.rename=&Umbenennen
 notelist.set_folder=&Ordner zuweisen
+notelist.col_hidden=Versteckt
+notelist.col_ontop=Vordergrund
 notelist.options=&Optionen
 notelist.preview=&Vorschau
 notelist.folder_menu=&Ordner
@@ -58,3 +62,54 @@ confirm.delete_multi=%d Notizen löschen?
 
 app.already_running=UltraNote läuft bereits.
 note.empty=(leer)
+
+settings.title=UltraNote - Einstellungen
+settings.ok=OK
+settings.cancel=Abbrechen
+settings.apply=Übernehmen
+settings.change=Ändern...
+
+settings.tab_layout=Layout
+settings.tab_keyboard=Tastatur
+settings.tab_general=Allgemein
+settings.tab_misc=Diverse
+
+settings.bg_color=Hintergrundfarbe:
+settings.text_color=Textfarbe:
+settings.border_color=Rahmenfarbe:
+settings.font=Schriftart:
+settings.preview_label=Vorschau:
+settings.preview_text=Dies ist ein Beispieltext für die Notiz-Vorschau.
+
+settings.sc_action=Aktion
+settings.sc_key=Tastenkombination
+settings.sc_newkey=Neue Taste:
+settings.sc_apply=Ändern
+settings.sc_default=Standard
+settings.sc_edit=Bearbeiten
+settings.sc_delete=Löschen
+settings.sc_rename=Umbenennen
+settings.sc_ontop=Immer im Vordergrund
+settings.sc_hide=Verstecken
+settings.sc_copy=Kopieren
+settings.sc_newnote=Neue Notiz
+settings.sc_global_new=Neue Notiz (Global)
+settings.sc_global_list=Notizliste (Global)
+
+settings.autosave=Autosave-Intervall:
+settings.seconds=Sek.
+settings.confirm_delete=Lösch-Bestätigung anzeigen
+settings.preview_enabled=Vorschau in Notizliste aktivieren
+settings.preview_delay=Vorschau-Verzögerung:
+settings.tray_dblclick=Tray-Doppelklick:
+settings.tray_newnote=Neue Notiz
+settings.tray_notelist=Notizliste öffnen
+settings.tray_showall=Alle anzeigen
+settings.language=Sprache:
+
+settings.newnote_x=Neue Notiz - Position X:
+settings.newnote_y=Neue Notiz - Position Y:
+settings.cascade_step=Kaskadierung - Schritt:
+settings.cascade_reset=Kaskadierung - Reset bei:
+settings.default_folder=Standard-Ordner:
+settings.px=px

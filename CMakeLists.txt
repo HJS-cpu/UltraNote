@@ -15,6 +15,7 @@ set(SOURCES
     src/NoteListWindow.cpp
     src/Storage.cpp
     src/Localization.cpp
+    src/SettingsDialog.cpp
 )
 
 # Resource file

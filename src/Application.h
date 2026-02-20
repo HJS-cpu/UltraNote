@@ -7,7 +7,6 @@
 #include <memory>
 #include <cstdint>
 #include <string>
-#include <utility>
 #include "Note.h"
 
 class NoteWindow;
@@ -23,6 +22,7 @@ public:
 
     // Note lifecycle
     NoteWindow* CreateNewNote();
+    NoteWindow* CreateNoteFromClipboard();
     void        RequestDeleteNote(uint64_t id);
     void        DeleteSelectedNotes();
     void        MarkDirty();
@@ -67,6 +67,15 @@ public:
     void ToggleNoteList();
     void RefreshNoteList();
 
+    // Settings dialog
+    void ShowSettingsDialog();
+    void ApplySettings();
+
+    // About dialog
+    void ShowAboutDialog(HWND hParent);
+    void RegisterGlobalHotkeys();
+    void UnregisterGlobalHotkeys();
+
     HINSTANCE GetInstance() const { return m_hInst; }
     HBITMAP   GetMenuBitmap(SHSTOCKICONID id);
 
@@ -101,9 +110,6 @@ private:
     bool     m_notesVisible = true;
     int      m_cascadeX     = 100;
     int      m_cascadeY     = 100;
-
-    // Cached language list from last tray menu build (for command dispatch)
-    std::vector<std::pair<std::wstring, std::wstring>> m_availableLangs;
 
     // Cached menu bitmaps (shell stock icon id -> HBITMAP)
     std::unordered_map<int, HBITMAP> m_menuBitmaps;
