@@ -13,6 +13,7 @@ menu.note_list=Note &List...
 menu.settings=&Settings
 menu.language=&Language
 menu.about=&About
+menu.search=&Search...
 menu.exit=E&xit
 
 note.edit=&Edit	Enter
@@ -50,6 +51,8 @@ notelist.col_ontop=On Top
 notelist.options=&Options
 notelist.preview=&Preview
 notelist.folder_menu=F&older
+notelist.tb_search=Search
+notelist.search_placeholder=Search...
 
 folder.new=New Folder
 folder.rename=Rename Folder
@@ -96,7 +99,12 @@ settings.sc_newnote=New Note
 settings.sc_global_new=New Note (Global)
 settings.sc_global_list=Note List (Global)
 
-settings.autosave=Autosave interval:
+settings.group_display=Display
+settings.group_delete=Delete
+settings.group_save=Save
+settings.group_tray=System Tray
+
+settings.autosave=Automatically every
 settings.seconds=sec.
 settings.confirm_delete=Show delete confirmation
 settings.preview_enabled=Enable preview in note list
@@ -105,7 +113,7 @@ settings.tray_dblclick=Tray double-click:
 settings.tray_newnote=New Note
 settings.tray_notelist=Open Note List
 settings.tray_showall=Show All
-settings.language=Language:
+settings.language=Language
 
 settings.newnote_x=New note - Position X:
 settings.newnote_y=New note - Position Y:

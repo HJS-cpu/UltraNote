@@ -143,6 +143,7 @@ LRESULT Application::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                 case ID_TRAY_SHOWNOTES:  ShowAllNotes(); break;
                 case ID_TRAY_HIDENOTES:  HideAllNotes(); break;
                 case ID_TRAY_NOTELIST:   ToggleNoteList(); break;
+                case ID_TRAY_SEARCH:     ShowSearchInNoteList(); break;
                 case ID_TRAY_SETTINGS:   ShowSettingsDialog(); break;
                 case ID_TRAY_ABOUT:      ShowAboutDialog(m_hAppWnd); break;
                 case ID_TRAY_EXIT:       PostQuitMessage(0); break;
@@ -207,18 +208,12 @@ void Application::RemoveTrayIcon() {
 }
 
 void Application::LoadMenuBitmaps() {
-    // Pre-load all shell stock icons used in menus
+    // Pre-load shell stock icons still used in menus
     static const SHSTOCKICONID icons[] = {
-        SIID_DOCNOASSOC,    // New Note
-        SIID_FOLDER,        // Show Notes
-        SIID_FOLDERBACK,    // Hide Notes
+        SIID_FOLDER,        // Folder list icon
         SIID_STACK,         // Note List
-        SIID_WORLD,         // Settings
-        SIID_DELETE,        // Exit / Delete
         SIID_RENAME,        // Edit
-        SIID_LOCK,          // Always on Top (pin-like)
-        SIID_DOCASSOC,      // Rename (note title) / Paste as Note
-        SIID_HELP,          // About
+        SIID_DOCASSOC,      // Rename (note title)
     };
     for (auto id : icons) {
         if (m_menuBitmaps.find(static_cast<int>(id)) == m_menuBitmaps.end()) {
@@ -245,6 +240,28 @@ void Application::AppendMenuItem(HMENU hMenu, UINT id, const wchar_t* text,
     mii.wID        = id;
     mii.dwTypeData = const_cast<wchar_t*>(text);
     mii.hbmpItem   = GetMenuBitmap(iconId);
+    InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
+}
+
+HBITMAP Application::GetResourceBitmap(UINT iconResId) {
+    auto it = m_resBitmaps.find(iconResId);
+    if (it != m_resBitmaps.end()) return it->second;
+    HBITMAP bmp = LoadResourceMenuBitmap(iconResId);
+    if (bmp) m_resBitmaps[iconResId] = bmp;
+    return bmp;
+}
+
+void Application::AppendMenuItemRes(HMENU hMenu, UINT id, const wchar_t* text,
+                                     UINT iconResId, UINT flags) {
+    MENUITEMINFOW mii = {};
+    mii.cbSize     = sizeof(mii);
+    mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_FTYPE | MIIM_STATE;
+    mii.fType      = MFT_STRING;
+    mii.fState     = (flags & MF_GRAYED) ? MFS_GRAYED : MFS_ENABLED;
+    if (flags & MF_CHECKED) mii.fState |= MFS_CHECKED;
+    mii.wID        = id;
+    mii.dwTypeData = const_cast<wchar_t*>(text);
+    mii.hbmpItem   = GetResourceBitmap(iconResId);
     InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
 }
 
@@ -359,6 +376,14 @@ void Application::ShowAboutDialog(HWND hParent) {
     auto dlgProc = [](HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) -> INT_PTR {
         switch (msg) {
             case WM_INITDIALOG: {
+                // Set about icon in title bar
+                HICON hAboutIcon = static_cast<HICON>(LoadImageW(
+                    GetModuleHandleW(nullptr), MAKEINTRESOURCE(IDI_ABOUT),
+                    IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+                    GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
+                if (hAboutIcon)
+                    SendMessageW(hDlg, WM_SETICON, ICON_SMALL,
+                                 reinterpret_cast<LPARAM>(hAboutIcon));
                 // Subclass the link label for hover tracking
                 HWND hLink = GetDlgItem(hDlg, 1001);
                 SetWindowSubclass(hLink, AboutLinkSubclassProc, 0, 0);
@@ -395,36 +420,38 @@ void Application::ShowTrayMenu() {
     HMENU hPopup = CreatePopupMenu();
     if (!hPopup) return;
 
-    AppendMenuItem(hPopup, ID_TRAY_NEWNOTE, Ls(L"menu.new_note").c_str(),
-                   SIID_DOCNOASSOC);
-    AppendMenuItem(hPopup, ID_TRAY_PASTENOTE, Ls(L"menu.paste_note").c_str(),
-                   SIID_DOCASSOC);
+    AppendMenuItemRes(hPopup, ID_TRAY_NEWNOTE, Ls(L"menu.new_note").c_str(),
+                      IDI_NEW);
+    AppendMenuItemRes(hPopup, ID_TRAY_PASTENOTE, Ls(L"menu.paste_note").c_str(),
+                      IDI_PASTE);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
-    AppendMenuItem(hPopup, ID_TRAY_SHOWNOTES, Ls(L"menu.show_notes").c_str(),
-                   SIID_FOLDER, m_notesVisible ? MF_GRAYED : 0);
-    AppendMenuItem(hPopup, ID_TRAY_HIDENOTES, Ls(L"menu.hide_notes").c_str(),
-                   SIID_FOLDERBACK, m_notesVisible ? 0 : MF_GRAYED);
+    AppendMenuItemRes(hPopup, ID_TRAY_SHOWNOTES, Ls(L"menu.show_notes").c_str(),
+                      IDI_SHOW_ALL);
+    AppendMenuItemRes(hPopup, ID_TRAY_HIDENOTES, Ls(L"menu.hide_notes").c_str(),
+                      IDI_HIDE_ALL);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
-    AppendMenuItem(hPopup, ID_TRAY_NOTELIST, Ls(L"menu.note_list").c_str(),
-                   SIID_STACK);
+    AppendMenuItemRes(hPopup, ID_TRAY_NOTELIST, Ls(L"menu.note_list").c_str(),
+                      IDI_NOTELIST);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
+    AppendMenuItemRes(hPopup, ID_TRAY_SEARCH, Ls(L"menu.search").c_str(),
+                      IDI_SEARCH);
     // Settings menu entry (opens the settings dialog with language tab etc.)
-    AppendMenuItem(hPopup, ID_TRAY_SETTINGS, Ls(L"menu.settings").c_str(),
-                   SIID_WORLD);
+    AppendMenuItemRes(hPopup, ID_TRAY_SETTINGS, Ls(L"menu.settings").c_str(),
+                      IDI_SETTINGS);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    AppendMenuItem(hPopup, ID_TRAY_ABOUT, Ls(L"menu.about").c_str(),
-                   SIID_HELP);
+    AppendMenuItemRes(hPopup, ID_TRAY_ABOUT, Ls(L"menu.about").c_str(),
+                      IDI_ABOUT);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
-    AppendMenuItem(hPopup, ID_TRAY_EXIT, Ls(L"menu.exit").c_str(),
-                   SIID_DELETE);
+    AppendMenuItemRes(hPopup, ID_TRAY_EXIT, Ls(L"menu.exit").c_str(),
+                      IDI_EXIT);
 
     POINT pt;
     GetCursorPos(&pt);
@@ -763,6 +790,19 @@ void Application::RefreshNoteList() {
     if (m_noteListWindow && m_noteListWindow->IsVisible()) {
         m_noteListWindow->Refresh();
     }
+}
+
+void Application::ShowSearchInNoteList() {
+    if (!m_noteListWindow) {
+        m_noteListWindow = std::make_unique<NoteListWindow>(m_hInst);
+        m_noteListWindow->Create();
+    }
+
+    if (!m_noteListWindow->IsVisible()) {
+        m_noteListWindow->Show();
+    }
+
+    m_noteListWindow->FocusSearchField();
 }
 
 // ============================================================================

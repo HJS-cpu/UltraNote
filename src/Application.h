@@ -66,6 +66,7 @@ public:
     // Note list window
     void ToggleNoteList();
     void RefreshNoteList();
+    void ShowSearchInNoteList();
 
     // Settings dialog
     void ShowSettingsDialog();
@@ -78,6 +79,7 @@ public:
 
     HINSTANCE GetInstance() const { return m_hInst; }
     HBITMAP   GetMenuBitmap(SHSTOCKICONID id);
+    HBITMAP   GetResourceBitmap(UINT iconResId);
 
 private:
     Application() = default;
@@ -89,6 +91,8 @@ private:
     void LoadMenuBitmaps();
     void AppendMenuItem(HMENU hMenu, UINT id, const wchar_t* text,
                         SHSTOCKICONID iconId, UINT flags = 0);
+    void AppendMenuItemRes(HMENU hMenu, UINT id, const wchar_t* text,
+                           UINT iconResId, UINT flags = 0);
     void ChangeLanguage(const std::wstring& langCode);
 
     static LRESULT CALLBACK AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -113,4 +117,6 @@ private:
 
     // Cached menu bitmaps (shell stock icon id -> HBITMAP)
     std::unordered_map<int, HBITMAP> m_menuBitmaps;
+    // Cached resource icon bitmaps (resource id -> HBITMAP)
+    std::unordered_map<UINT, HBITMAP> m_resBitmaps;
 };

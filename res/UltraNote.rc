@@ -3,8 +3,21 @@
 #include "Resource.h"
 
 // Icons
-IDI_APP  ICON "UltraNote.ico"
-IDI_TRAY ICON "UltraNote.ico"
+IDI_APP      ICON "UltraNote.ico"
+IDI_TRAY     ICON "UltraNote.ico"
+IDI_NOTELIST ICON "notelist.ico"
+IDI_PASTE    ICON "paste.ico"
+IDI_SETTINGS ICON "settings.ico"
+IDI_NEW      ICON "new.ico"
+IDI_SEARCH   ICON "search.ico"
+IDI_ABOUT    ICON "about.ico"
+IDI_PIN      ICON "pin.ico"
+IDI_SHOW_ALL ICON "show_all.ico"
+IDI_COPY     ICON "copy.ico"
+IDI_EXIT     ICON "exit.ico"
+IDI_DELETE   ICON "delete.ico"
+IDI_HIDE_ALL ICON "hide_all.ico"
+IDI_GROUP    ICON "group.ico"
 
 // Tray right-click context menu
 IDR_TRAY_MENU MENU

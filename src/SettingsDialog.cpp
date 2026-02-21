@@ -314,6 +314,13 @@ void SettingsDialog::OnInitDialog(HWND hwnd) {
     m_hwnd = hwnd;
     SetWindowTextW(hwnd, Ls(L"settings.title").c_str());
 
+    // Set dialog icon (shown in title bar)
+    HICON hIcon = static_cast<HICON>(LoadImageW(
+        Application::Get().GetInstance(), MAKEINTRESOURCE(IDI_SETTINGS),
+        IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR));
+    if (hIcon) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(hIcon));
+
     HFONT hFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
     // OK / Cancel / Apply buttons
@@ -354,6 +361,13 @@ void SettingsDialog::OnInitDialog(HWND hwnd) {
     for (int t = 0; t < 4; ++t) {
         for (HWND h : m_tabControls[t]) {
             SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+        }
+    }
+
+    // Re-apply bold font to group headers (overwritten by loop above)
+    if (m_hBoldFont) {
+        for (HWND h : m_groupHeaders) {
+            SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(m_hBoldFont), TRUE);
         }
     }
 
@@ -544,119 +558,280 @@ void SettingsDialog::CreateKeyboardTab(HWND hwnd) {
 }
 
 // ============================================================================
+// Scrollable options panel (used by General tab)
+// ============================================================================
+
+static LRESULT CALLBACK ScrollPanelProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_VSCROLL: {
+            SCROLLINFO si = {};
+            si.cbSize = sizeof(si);
+            si.fMask = SIF_ALL;
+            GetScrollInfo(hwnd, SB_VERT, &si);
+            int oldPos = si.nPos;
+            switch (LOWORD(wParam)) {
+                case SB_LINEUP:     si.nPos -= 20; break;
+                case SB_LINEDOWN:   si.nPos += 20; break;
+                case SB_PAGEUP:     si.nPos -= si.nPage; break;
+                case SB_PAGEDOWN:   si.nPos += si.nPage; break;
+                case SB_THUMBTRACK: si.nPos = si.nTrackPos; break;
+            }
+            si.fMask = SIF_POS;
+            SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+            GetScrollInfo(hwnd, SB_VERT, &si);
+            if (si.nPos != oldPos) {
+                ScrollWindowEx(hwnd, 0, oldPos - si.nPos,
+                    nullptr, nullptr, nullptr, nullptr,
+                    SW_SCROLLCHILDREN | SW_INVALIDATE | SW_ERASE);
+            }
+            return 0;
+        }
+
+        case WM_MOUSEWHEEL: {
+            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            SendMessageW(hwnd, WM_VSCROLL,
+                delta > 0 ? SB_LINEUP : SB_LINEDOWN, 0);
+            return 0;
+        }
+
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORBTN: {
+            HDC hdc = reinterpret_cast<HDC>(wParam);
+            SetBkMode(hdc, TRANSPARENT);
+            return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_WINDOW));
+        }
+
+        case WM_COMMAND:
+            return SendMessageW(GetParent(hwnd), msg, wParam, lParam);
+
+        case WM_ERASEBKGND: {
+            HDC hdc = reinterpret_cast<HDC>(wParam);
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            FillRect(hdc, &rc, GetSysColorBrush(COLOR_WINDOW));
+            return TRUE;
+        }
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+static void RegisterScrollPanelClass() {
+    static bool registered = false;
+    if (registered) return;
+
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = ScrollPanelProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
+    wc.lpszClassName = L"UltraNoteScrollPanel";
+    RegisterClassExW(&wc);
+    registered = true;
+}
+
+// ============================================================================
 // Tab 3: General
 // ============================================================================
 
 void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     RECT tabRc = GetTabDisplayRect(m_hTab);
-    int x = tabRc.left + 10;
-    int y = tabRc.top + 8;
-    int labelW = 160, editW = 60, rowH = 28;
 
-    // Autosave interval
-    HWND hLabel1 = CreateWindowExW(0, L"STATIC", Ls(L"settings.autosave").c_str(),
-        WS_CHILD | SS_LEFT, x, y + 3, labelW, 18, hwnd, nullptr, nullptr, nullptr);
-    m_tabControls[2].push_back(hLabel1);
+    // Create bold font for group headers
+    if (m_hBoldFont) {
+        DeleteObject(m_hBoldFont);
+        m_hBoldFont = nullptr;
+    }
+    m_groupHeaders.clear();
 
-    HWND hEdit1 = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-        WS_CHILD | ES_NUMBER | ES_RIGHT,
-        x + labelW, y, editW, 22,
-        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_AUTOSAVE_EDIT)),
-        nullptr, nullptr);
-    m_tabControls[2].push_back(hEdit1);
+    LOGFONTW lf = {};
+    HFONT hDefaultFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    GetObjectW(hDefaultFont, sizeof(lf), &lf);
+    lf.lfWeight = FW_BOLD;
+    m_hBoldFont = CreateFontIndirectW(&lf);
 
-    HWND hSpin1 = CreateWindowExW(0, UPDOWN_CLASS, L"",
-        WS_CHILD | UDS_AUTOBUDDY | UDS_SETBUDDYINT | UDS_ALIGNRIGHT,
-        0, 0, 0, 0,
-        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_AUTOSAVE_SPIN)),
-        nullptr, nullptr);
-    SendMessageW(hSpin1, UDM_SETRANGE32, 10, 300);
-    SendMessageW(hSpin1, UDM_SETPOS32, 0, m_data.autosaveInterval);
-    m_tabControls[2].push_back(hSpin1);
+    // Create scrollable panel filling the tab area
+    RegisterScrollPanelClass();
+    int panelX = tabRc.left + 4;
+    int panelY = tabRc.top + 4;
+    int panelW = tabRc.right - tabRc.left - 8;
+    int panelH = tabRc.bottom - tabRc.top - 8;
 
-    HWND hSec1 = CreateWindowExW(0, L"STATIC", Ls(L"settings.seconds").c_str(),
-        WS_CHILD | SS_LEFT, x + labelW + editW + 20, y + 3, 40, 18,
+    m_hGeneralPanel = CreateWindowExW(WS_EX_CLIENTEDGE,
+        L"UltraNoteScrollPanel", L"",
+        WS_CHILD | WS_CLIPCHILDREN | WS_VSCROLL,
+        panelX, panelY, panelW, panelH,
         hwnd, nullptr, nullptr, nullptr);
-    m_tabControls[2].push_back(hSec1);
-    y += rowH;
+    m_tabControls[2].push_back(m_hGeneralPanel);
 
-    // Confirm delete
-    HWND hCheck = CreateWindowExW(0, L"BUTTON", Ls(L"settings.confirm_delete").c_str(),
-        WS_CHILD | BS_AUTOCHECKBOX,
-        x, y, 300, 20,
-        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CONFIRM_DELETE)),
-        nullptr, nullptr);
-    if (m_data.confirmDelete)
-        SendMessageW(hCheck, BM_SETCHECK, BST_CHECKED, 0);
-    m_tabControls[2].push_back(hCheck);
-    y += rowH;
+    // All controls are children of the panel
+    HWND panel = m_hGeneralPanel;
+    int x = 6, y = 4;
+    int indent = 20;
+    int subIndent = 16;
+    int editW = 50;
+    int headerH = 18;
+    int rowH = 22;
+    int groupGap = 6;
+    int contentW = panelW - 30;  // account for scrollbar + margins
 
-    // Preview enabled
+    // Load group header icon (small, 16x16)
+    int iconCx = 16;
+    int iconCy = 16;
+    HICON hGroupIcon = static_cast<HICON>(LoadImageW(
+        GetModuleHandleW(nullptr), MAKEINTRESOURCE(IDI_GROUP),
+        IMAGE_ICON, iconCx, iconCy, LR_DEFAULTCOLOR));
+
+    auto addGroupHeader = [&](const wchar_t* labelKey) {
+        // Icon before the text
+        HWND hIcon = CreateWindowExW(0, L"STATIC", nullptr,
+            WS_CHILD | WS_VISIBLE | SS_ICON,
+            x, y + (headerH - iconCy) / 2, iconCx, iconCy,
+            panel, nullptr, nullptr, nullptr);
+        SendMessageW(hIcon, STM_SETICON, reinterpret_cast<WPARAM>(hGroupIcon), 0);
+
+        // Label text after the icon
+        int textX = x + iconCx + 4;
+        HWND hLabel = CreateWindowExW(0, L"STATIC", Ls(labelKey).c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            textX, y, contentW - iconCx - 4, headerH,
+            panel, nullptr, nullptr, nullptr);
+        SendMessageW(hLabel, WM_SETFONT, reinterpret_cast<WPARAM>(m_hBoldFont), TRUE);
+        m_groupHeaders.push_back(hLabel);
+        y += headerH + 2;
+    };
+
+    int ix = x + indent;
+
+    // --- Group: Display ---
+    addGroupHeader(L"settings.group_display");
+
     HWND hPreviewCheck = CreateWindowExW(0, L"BUTTON", Ls(L"settings.preview_enabled").c_str(),
-        WS_CHILD | BS_AUTOCHECKBOX,
-        x, y, 300, 20,
-        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_PREVIEW_ENABLED)),
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        ix, y, contentW - indent, 18,
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_PREVIEW_ENABLED)),
         nullptr, nullptr);
+    SendMessageW(hPreviewCheck, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
     if (m_data.previewEnabled)
         SendMessageW(hPreviewCheck, BM_SETCHECK, BST_CHECKED, 0);
-    m_tabControls[2].push_back(hPreviewCheck);
     y += rowH;
 
-    // Preview delay
-    HWND hLabel2 = CreateWindowExW(0, L"STATIC", Ls(L"settings.preview_delay").c_str(),
-        WS_CHILD | SS_LEFT, x, y + 3, labelW, 18, hwnd, nullptr, nullptr, nullptr);
-    m_tabControls[2].push_back(hLabel2);
+    HWND hDelayLabel = CreateWindowExW(0, L"STATIC", Ls(L"settings.preview_delay").c_str(),
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        ix + subIndent, y + 2, 130, 18, panel, nullptr, nullptr, nullptr);
+    SendMessageW(hDelayLabel, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
 
     HWND hEdit2 = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-        WS_CHILD | ES_NUMBER | ES_RIGHT,
-        x + labelW, y, editW, 22,
-        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_PREVIEW_DELAY_EDIT)),
+        WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_RIGHT,
+        ix + subIndent + 130, y, editW, 20,
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_PREVIEW_DELAY_EDIT)),
         nullptr, nullptr);
-    m_tabControls[2].push_back(hEdit2);
+    SendMessageW(hEdit2, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
 
     HWND hSpin2 = CreateWindowExW(0, UPDOWN_CLASS, L"",
-        WS_CHILD | UDS_AUTOBUDDY | UDS_SETBUDDYINT | UDS_ALIGNRIGHT,
+        WS_CHILD | WS_VISIBLE | UDS_AUTOBUDDY | UDS_SETBUDDYINT | UDS_ALIGNRIGHT,
         0, 0, 0, 0,
-        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_PREVIEW_DELAY_SPIN)),
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_PREVIEW_DELAY_SPIN)),
         nullptr, nullptr);
     SendMessageW(hSpin2, UDM_SETRANGE32, 100, 2000);
     SendMessageW(hSpin2, UDM_SETPOS32, 0, m_data.previewDelay);
-    m_tabControls[2].push_back(hSpin2);
 
     HWND hMs = CreateWindowExW(0, L"STATIC", L"ms",
-        WS_CHILD | SS_LEFT, x + labelW + editW + 20, y + 3, 30, 18,
-        hwnd, nullptr, nullptr, nullptr);
-    m_tabControls[2].push_back(hMs);
-    y += rowH;
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        ix + subIndent + 130 + editW + 8, y + 2, 30, 18,
+        panel, nullptr, nullptr, nullptr);
+    SendMessageW(hMs, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
+    y += rowH + groupGap;
 
-    // Tray double-click action
-    HWND hLabel3 = CreateWindowExW(0, L"STATIC", Ls(L"settings.tray_dblclick").c_str(),
-        WS_CHILD | SS_LEFT, x, y + 3, labelW, 18, hwnd, nullptr, nullptr, nullptr);
-    m_tabControls[2].push_back(hLabel3);
+    // --- Group: Delete ---
+    addGroupHeader(L"settings.group_delete");
+
+    HWND hCheck = CreateWindowExW(0, L"BUTTON", Ls(L"settings.confirm_delete").c_str(),
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        ix, y, contentW - indent, 18,
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CONFIRM_DELETE)),
+        nullptr, nullptr);
+    SendMessageW(hCheck, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
+    if (m_data.confirmDelete)
+        SendMessageW(hCheck, BM_SETCHECK, BST_CHECKED, 0);
+    y += rowH + groupGap;
+
+    // --- Group: Save ---
+    addGroupHeader(L"settings.group_save");
+
+    HWND hAutoLabel = CreateWindowExW(0, L"STATIC", Ls(L"settings.autosave").c_str(),
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        ix, y + 2, 110, 18, panel, nullptr, nullptr, nullptr);
+    SendMessageW(hAutoLabel, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
+
+    HWND hEdit1 = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_RIGHT,
+        ix + 110, y, editW, 20,
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_AUTOSAVE_EDIT)),
+        nullptr, nullptr);
+    SendMessageW(hEdit1, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
+
+    HWND hSpin1 = CreateWindowExW(0, UPDOWN_CLASS, L"",
+        WS_CHILD | WS_VISIBLE | UDS_AUTOBUDDY | UDS_SETBUDDYINT | UDS_ALIGNRIGHT,
+        0, 0, 0, 0,
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_AUTOSAVE_SPIN)),
+        nullptr, nullptr);
+    SendMessageW(hSpin1, UDM_SETRANGE32, 10, 300);
+    SendMessageW(hSpin1, UDM_SETPOS32, 0, m_data.autosaveInterval);
+
+    HWND hSec1 = CreateWindowExW(0, L"STATIC", Ls(L"settings.seconds").c_str(),
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        ix + 110 + editW + 8, y + 2, 40, 18,
+        panel, nullptr, nullptr, nullptr);
+    SendMessageW(hSec1, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
+    y += rowH + groupGap;
+
+    // --- Group: System Tray ---
+    addGroupHeader(L"settings.group_tray");
+
+    HWND hTrayLabel = CreateWindowExW(0, L"STATIC", Ls(L"settings.tray_dblclick").c_str(),
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        ix, y + 3, 110, 18, panel, nullptr, nullptr, nullptr);
+    SendMessageW(hTrayLabel, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
 
     HWND hCombo1 = CreateWindowExW(0, L"COMBOBOX", L"",
-        WS_CHILD | CBS_DROPDOWNLIST,
-        x + labelW, y, 160, 120,
-        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_TRAY_DBLCLICK)),
+        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+        ix + 110, y, 160, 120,
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_TRAY_DBLCLICK)),
         nullptr, nullptr);
+    SendMessageW(hCombo1, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
     SendMessageW(hCombo1, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(Ls(L"settings.tray_newnote").c_str()));
     SendMessageW(hCombo1, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(Ls(L"settings.tray_notelist").c_str()));
     SendMessageW(hCombo1, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(Ls(L"settings.tray_showall").c_str()));
     SendMessageW(hCombo1, CB_SETCURSEL, m_data.trayDoubleClick, 0);
-    m_tabControls[2].push_back(hCombo1);
-    y += rowH;
+    y += rowH + groupGap;
 
-    // Language
-    HWND hLabel4 = CreateWindowExW(0, L"STATIC", Ls(L"settings.language").c_str(),
-        WS_CHILD | SS_LEFT, x, y + 3, labelW, 18, hwnd, nullptr, nullptr, nullptr);
-    m_tabControls[2].push_back(hLabel4);
+    // --- Group: Language ---
+    addGroupHeader(L"settings.language");
 
     HWND hLangCombo = CreateWindowExW(0, L"COMBOBOX", L"",
-        WS_CHILD | CBS_DROPDOWNLIST,
-        x + labelW, y, 160, 120,
-        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_LANGUAGE)),
+        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+        ix, y, 160, 120,
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_LANGUAGE)),
         nullptr, nullptr);
-    m_tabControls[2].push_back(hLangCombo);
+    SendMessageW(hLangCombo, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
+    y += rowH;
+
+    // Set scroll range based on content height
+    int totalContentH = y + 4;
+    RECT panelRc;
+    GetClientRect(panel, &panelRc);
+    int visibleH = panelRc.bottom;
+
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_RANGE | SIF_PAGE;
+    si.nMin = 0;
+    si.nMax = totalContentH;
+    si.nPage = visibleH;
+    SetScrollInfo(panel, SB_VERT, &si, TRUE);
+
+    ShowScrollBar(panel, SB_VERT, totalContentH > visibleH);
 
     PopulateLanguageCombo();
 }
@@ -861,7 +1036,7 @@ void SettingsDialog::OnShortcutDefault() {
 // ============================================================================
 
 void SettingsDialog::PopulateLanguageCombo() {
-    HWND hCombo = GetDlgItem(m_hwnd, IDC_LANGUAGE);
+    HWND hCombo = GetDlgItem(m_hGeneralPanel ? m_hGeneralPanel : m_hwnd, IDC_LANGUAGE);
     if (!hCombo) return;
 
     m_langs = Localization::Get().GetAvailableLanguages();
@@ -898,25 +1073,26 @@ void SettingsDialog::PopulateFolderCombo() {
 // ============================================================================
 
 void SettingsDialog::ReadFromControls() {
-    // Tab 3: General
+    // Tab 3: General (controls are children of the scroll panel)
+    HWND gp = m_hGeneralPanel ? m_hGeneralPanel : m_hwnd;
     HWND hSpin;
 
-    hSpin = GetDlgItem(m_hwnd, IDC_AUTOSAVE_SPIN);
+    hSpin = GetDlgItem(gp, IDC_AUTOSAVE_SPIN);
     if (hSpin) m_data.autosaveInterval = static_cast<int>(SendMessageW(hSpin, UDM_GETPOS32, 0, 0));
 
-    HWND hCheck = GetDlgItem(m_hwnd, IDC_CONFIRM_DELETE);
+    HWND hCheck = GetDlgItem(gp, IDC_CONFIRM_DELETE);
     if (hCheck) m_data.confirmDelete = (SendMessageW(hCheck, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
-    HWND hPreviewCheck = GetDlgItem(m_hwnd, IDC_PREVIEW_ENABLED);
+    HWND hPreviewCheck = GetDlgItem(gp, IDC_PREVIEW_ENABLED);
     if (hPreviewCheck) m_data.previewEnabled = (SendMessageW(hPreviewCheck, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
-    hSpin = GetDlgItem(m_hwnd, IDC_PREVIEW_DELAY_SPIN);
+    hSpin = GetDlgItem(gp, IDC_PREVIEW_DELAY_SPIN);
     if (hSpin) m_data.previewDelay = static_cast<int>(SendMessageW(hSpin, UDM_GETPOS32, 0, 0));
 
-    HWND hCombo = GetDlgItem(m_hwnd, IDC_TRAY_DBLCLICK);
+    HWND hCombo = GetDlgItem(gp, IDC_TRAY_DBLCLICK);
     if (hCombo) m_data.trayDoubleClick = static_cast<int>(SendMessageW(hCombo, CB_GETCURSEL, 0, 0));
 
-    HWND hLang = GetDlgItem(m_hwnd, IDC_LANGUAGE);
+    HWND hLang = GetDlgItem(gp, IDC_LANGUAGE);
     if (hLang) {
         int idx = static_cast<int>(SendMessageW(hLang, CB_GETCURSEL, 0, 0));
         if (idx >= 0 && idx < static_cast<int>(m_langs.size()))

@@ -596,18 +596,30 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
         mii.hbmpItem   = app.GetMenuBitmap(iconId);
         InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
     };
+    auto addItemRes = [&](UINT id, const wchar_t* text, UINT iconResId, UINT flags = 0) {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_FTYPE | MIIM_STATE;
+        mii.fType      = MFT_STRING;
+        mii.fState     = (flags & MF_GRAYED) ? MFS_GRAYED : MFS_ENABLED;
+        if (flags & MF_CHECKED) mii.fState |= MFS_CHECKED;
+        mii.wID        = id;
+        mii.dwTypeData = const_cast<wchar_t*>(text);
+        mii.hbmpItem   = app.GetResourceBitmap(iconResId);
+        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
+    };
 
     addItem(ID_NOTE_EDIT,   Ls(L"note.edit").c_str(),   SIID_RENAME);
     addItem(ID_NOTE_RENAME, Ls(L"note.rename").c_str(), SIID_DOCASSOC);
-    addItem(ID_NOTE_COPY,   Ls(L"note.copy").c_str(),   SIID_DOCNOASSOC);
+    addItemRes(ID_NOTE_COPY, Ls(L"note.copy").c_str(), IDI_COPY);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItem(ID_NOTE_HIDE,   Ls(L"note.hide").c_str(),   SIID_FOLDERBACK);
-    addItem(ID_NOTE_DELETE, Ls(L"note.delete").c_str(), SIID_DELETE);
+    addItemRes(ID_NOTE_HIDE, Ls(L"note.hide").c_str(), IDI_HIDE_ALL);
+    addItemRes(ID_NOTE_DELETE, Ls(L"note.delete").c_str(), IDI_DELETE);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItem(ID_NOTE_ALWAYSONTOP, Ls(L"note.always_on_top").c_str(), SIID_LOCK,
-            m_data->layout.alwaysOnTop ? MF_CHECKED : 0);
+    addItemRes(ID_NOTE_ALWAYSONTOP, Ls(L"note.always_on_top").c_str(), IDI_PIN,
+               m_data->layout.alwaysOnTop ? MF_CHECKED : 0);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItem(ID_NOTE_NEWNOTE, Ls(L"note.new_note").c_str(), SIID_DOCNOASSOC);
+    addItemRes(ID_NOTE_NEWNOTE, Ls(L"note.new_note").c_str(), IDI_NEW);
 
     SetForegroundWindow(m_hwnd);
     int cmd = TrackPopupMenu(hPopup,

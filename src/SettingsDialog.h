@@ -116,6 +116,11 @@ private:
     // Available languages cache
     std::vector<std::pair<std::wstring, std::wstring>> m_langs;
 
+    // General tab: scrollable panel + bold font for group headers
+    HWND m_hGeneralPanel = nullptr;
+    HFONT m_hBoldFont = nullptr;
+    std::vector<HWND> m_groupHeaders;
+
     // Custom colors for ChooseColor dialog
     static COLORREF s_customColors[16];
 };

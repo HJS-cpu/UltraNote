@@ -65,7 +65,19 @@ bool NoteListWindow::Create() {
 
     if (!m_hwnd) return false;
 
-    // Helper: append menu item with shell stock icon
+    // Set window icon (title bar + taskbar)
+    HICON hIconSmall = static_cast<HICON>(LoadImageW(m_hInst, MAKEINTRESOURCE(IDI_NOTELIST),
+                                                      IMAGE_ICON,
+                                                      GetSystemMetrics(SM_CXSMICON),
+                                                      GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
+    HICON hIconBig = static_cast<HICON>(LoadImageW(m_hInst, MAKEINTRESOURCE(IDI_NOTELIST),
+                                                    IMAGE_ICON,
+                                                    GetSystemMetrics(SM_CXICON),
+                                                    GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR));
+    if (hIconSmall) SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(hIconSmall));
+    if (hIconBig)   SendMessageW(m_hwnd, WM_SETICON, ICON_BIG,   reinterpret_cast<LPARAM>(hIconBig));
+
+    // Helpers: append menu item with shell stock icon or resource icon
     auto& app = Application::Get();
     auto addItem = [&](HMENU hMenu, UINT id, const wchar_t* text, SHSTOCKICONID iconId) {
         MENUITEMINFOW mii = {};
@@ -76,15 +88,24 @@ bool NoteListWindow::Create() {
         mii.hbmpItem   = app.GetMenuBitmap(iconId);
         InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
     };
+    auto addItemRes = [&](HMENU hMenu, UINT id, const wchar_t* text, UINT iconResId) {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP;
+        mii.wID        = id;
+        mii.dwTypeData = const_cast<wchar_t*>(text);
+        mii.hbmpItem   = app.GetResourceBitmap(iconResId);
+        InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
+    };
 
     // Build menu bar programmatically
     HMENU hMenuBar = CreateMenu();
 
     // File menu
     HMENU hFileMenu = CreatePopupMenu();
-    addItem(hFileMenu, ID_NL_NOTE_NEW, Ls(L"notelist.new_note").c_str(), SIID_DOCNOASSOC);
+    addItemRes(hFileMenu, ID_NL_NOTE_NEW, Ls(L"notelist.new_note").c_str(), IDI_NEW);
     AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
-    addItem(hFileMenu, ID_NL_FILE_CLOSE, Ls(L"notelist.close").c_str(), SIID_DELETE);
+    addItemRes(hFileMenu, ID_NL_FILE_CLOSE, Ls(L"notelist.close").c_str(), IDI_EXIT);
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hFileMenu),
                 Ls(L"notelist.file").c_str());
 
@@ -92,7 +113,7 @@ bool NoteListWindow::Create() {
     HMENU hNoteMenu = CreatePopupMenu();
     addItem(hNoteMenu, ID_NL_NOTE_EDIT,   Ls(L"notelist.edit").c_str(),   SIID_RENAME);
     addItem(hNoteMenu, ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str(), SIID_DOCASSOC);
-    addItem(hNoteMenu, ID_NL_NOTE_DELETE, Ls(L"notelist.delete").c_str(), SIID_DELETE);
+    addItemRes(hNoteMenu, ID_NL_NOTE_DELETE, Ls(L"notelist.delete").c_str(), IDI_DELETE);
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hNoteMenu),
                 Ls(L"notelist.note").c_str());
 
@@ -100,15 +121,23 @@ bool NoteListWindow::Create() {
     HMENU hFolderMenu = CreatePopupMenu();
     addItem(hFolderMenu, ID_NL_FOLDER_NEW,    Ls(L"folder.new").c_str(),    SIID_FOLDER);
     addItem(hFolderMenu, ID_NL_FOLDER_RENAME, Ls(L"folder.rename").c_str(), SIID_RENAME);
-    addItem(hFolderMenu, ID_NL_FOLDER_DELETE, Ls(L"folder.delete").c_str(), SIID_DELETE);
+    addItemRes(hFolderMenu, ID_NL_FOLDER_DELETE, Ls(L"folder.delete").c_str(), IDI_DELETE);
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hFolderMenu),
                 Ls(L"notelist.folder_menu").c_str());
 
     // Options menu
     HMENU hOptionsMenu = CreatePopupMenu();
-    addItem(hOptionsMenu, ID_NL_SETTINGS, Ls(L"menu.settings").c_str(), SIID_WORLD);
+    {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP;
+        mii.wID        = ID_NL_SETTINGS;
+        mii.dwTypeData = const_cast<wchar_t*>(Ls(L"menu.settings").c_str());
+        mii.hbmpItem   = app.GetResourceBitmap(IDI_SETTINGS);
+        InsertMenuItemW(hOptionsMenu, GetMenuItemCount(hOptionsMenu), TRUE, &mii);
+    }
     AppendMenuW(hOptionsMenu, MF_SEPARATOR, 0, nullptr);
-    addItem(hOptionsMenu, ID_NL_ABOUT, Ls(L"menu.about").c_str(), SIID_HELP);
+    addItemRes(hOptionsMenu, ID_NL_ABOUT, Ls(L"menu.about").c_str(), IDI_ABOUT);
     AppendMenuW(hOptionsMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hOptionsMenu, MF_STRING | (m_previewEnabled ? MF_CHECKED : 0),
                 ID_NL_PREVIEW, Ls(L"notelist.preview").c_str());
@@ -131,6 +160,7 @@ bool NoteListWindow::Create() {
     }
 
     CreateToolbar();
+    CreateSearchEdit();
     CreateFolderList();
     CreateListView();
     LoadSettings();
@@ -185,6 +215,20 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_COMMAND: {
             UINT code = HIWORD(wParam);
             UINT id = LOWORD(wParam);
+
+            // Search edit change - live filter
+            if (reinterpret_cast<HWND>(lParam) == m_hSearchEdit && code == EN_CHANGE) {
+                int len = GetWindowTextLengthW(m_hSearchEdit);
+                if (len > 0) {
+                    m_searchQuery.resize(static_cast<size_t>(len));
+                    GetWindowTextW(m_hSearchEdit, &m_searchQuery[0], len + 1);
+                } else {
+                    m_searchQuery.clear();
+                }
+                PopulateList();
+                if (m_sortColumn >= 0) SortByColumn(m_sortColumn);
+                return 0;
+            }
 
             // Folder ListBox selection change
             if (reinterpret_cast<HWND>(lParam) == m_hFolderList && code == LBN_SELCHANGE) {
@@ -732,16 +776,22 @@ void NoteListWindow::CreateToolbar() {
     int cy = GetSystemMetrics(SM_CYSMICON);
     m_hToolbarImages = ImageList_Create(cx, cy, ILC_COLOR32, 6, 1);
 
-    struct { SHSTOCKICONID siid; } icons[] = {
-        { SIID_DOCNOASSOC },   // 0: New
-        { SIID_RENAME },       // 1: Edit
-        { SIID_DELETE },       // 2: Delete
-        { SIID_FOLDER },       // 3: Show All
-        { SIID_FOLDERBACK },   // 4: Hide All
-        { SIID_DOCASSOC },     // 5: Rename (use DOCASSOC as rename icon)
+    // Icon sources: -1 = resource icon, otherwise SHSTOCKICONID
+    struct { int siid; UINT resId; } icons[] = {
+        { -1,                  IDI_NEW },      // 0: New
+        { SIID_RENAME,         0 },            // 1: Edit
+        { -1,                  IDI_DELETE },   // 2: Delete
+        { -1,                  IDI_SHOW_ALL }, // 3: Show All
+        { -1,                  IDI_HIDE_ALL }, // 4: Hide All
+        { SIID_DOCASSOC,       0 },            // 5: Rename
     };
     for (auto& icon : icons) {
-        HBITMAP hBmp = LoadShellMenuBitmap(icon.siid);
+        HBITMAP hBmp = nullptr;
+        if (icon.siid == -1) {
+            hBmp = LoadResourceMenuBitmap(icon.resId);
+        } else {
+            hBmp = LoadShellMenuBitmap(static_cast<SHSTOCKICONID>(icon.siid));
+        }
         if (hBmp) {
             ImageList_Add(m_hToolbarImages, hBmp, nullptr);
             DeleteObject(hBmp);
@@ -764,6 +814,72 @@ void NoteListWindow::CreateToolbar() {
     SendMessageW(m_hToolbar, TB_ADDBUTTONS, _countof(buttons),
                  reinterpret_cast<LPARAM>(buttons));
     SendMessageW(m_hToolbar, TB_AUTOSIZE, 0, 0);
+}
+
+// ============================================================================
+// Search edit in toolbar
+// ============================================================================
+
+void NoteListWindow::CreateSearchEdit() {
+    if (!m_hToolbar) return;
+
+    // Get toolbar height for vertical centering
+    RECT tbRect;
+    GetWindowRect(m_hToolbar, &tbRect);
+    int tbH = tbRect.bottom - tbRect.top;
+
+    int editH = 22;
+    int editW = 160;
+    int editY = (tbH - editH) / 2;
+
+    // Position will be set properly in ResizeControls; create with placeholder coords
+    m_hSearchEdit = CreateWindowExW(
+        WS_EX_CLIENTEDGE, L"EDIT", nullptr,
+        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+        0, editY, editW, editH,
+        m_hToolbar,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SEARCH_EDIT)),
+        m_hInst, nullptr
+    );
+
+    if (m_hSearchEdit) {
+        // Set same font as toolbar
+        HFONT hFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        SendMessageW(m_hSearchEdit, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+        // Set cue banner (placeholder text)
+        SendMessageW(m_hSearchEdit, EM_SETCUEBANNER, TRUE,
+                     reinterpret_cast<LPARAM>(Ls(L"notelist.search_placeholder").c_str()));
+
+        // Subclass for ESC handling
+        SetWindowSubclass(m_hSearchEdit, SearchEditSubclassProc, 0,
+                          reinterpret_cast<DWORD_PTR>(this));
+    }
+}
+
+LRESULT CALLBACK NoteListWindow::SearchEditSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR /*subId*/, DWORD_PTR refData)
+{
+    if (msg == WM_KEYDOWN && wParam == VK_ESCAPE) {
+        // Clear search and move focus to listview
+        SetWindowTextW(hwnd, L"");
+        auto* self = reinterpret_cast<NoteListWindow*>(refData);
+        if (self->m_hListView)
+            SetFocus(self->m_hListView);
+        return 0;
+    }
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, SearchEditSubclassProc, 0);
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void NoteListWindow::FocusSearchField() {
+    if (m_hSearchEdit) {
+        SetFocus(m_hSearchEdit);
+        SendMessageW(m_hSearchEdit, EM_SETSEL, 0, -1);
+    }
 }
 
 // ============================================================================
@@ -906,6 +1022,24 @@ void NoteListWindow::PopulateList() {
             if (note.folder != m_selectedFolder) continue;
         }
 
+        // Filter by search query (case-insensitive substring match)
+        if (!m_searchQuery.empty()) {
+            // Convert search query to lowercase for comparison
+            std::wstring queryLower = m_searchQuery;
+            for (auto& c : queryLower) c = towlower(c);
+
+            std::wstring titleLower = note.title;
+            for (auto& c : titleLower) c = towlower(c);
+
+            std::wstring textLower = note.text;
+            for (auto& c : textLower) c = towlower(c);
+
+            if (titleLower.find(queryLower) == std::wstring::npos &&
+                textLower.find(queryLower) == std::wstring::npos) {
+                continue;
+            }
+        }
+
         // Title: use title field, fallback to first line of text
         std::wstring titleDisplay = note.title;
         if (titleDisplay.empty()) {
@@ -976,6 +1110,16 @@ void NoteListWindow::ResizeControls() {
         RECT tbRect;
         GetWindowRect(m_hToolbar, &tbRect);
         tbHeight = tbRect.bottom - tbRect.top;
+
+        // Position search edit at right side of toolbar
+        if (m_hSearchEdit) {
+            int editW = 160;
+            int editH = 22;
+            int editY = (tbHeight - editH) / 2;
+            int editX = rc.right - editW - 4;
+            if (editX < 0) editX = 0;
+            MoveWindow(m_hSearchEdit, editX, editY, editW, editH, TRUE);
+        }
     }
 
     if (m_hFolderList) {

@@ -1,11 +1,24 @@
 #pragma once
 
 // Version
-#define ULTRANOTE_VERSION       L"v0.5 Alpha"
+#define ULTRANOTE_VERSION       L"v0.6 Alpha"
 
 // Icons
 #define IDI_APP                 101
 #define IDI_TRAY                102
+#define IDI_NOTELIST            103
+#define IDI_PASTE               104
+#define IDI_SETTINGS            105
+#define IDI_NEW                 106
+#define IDI_SEARCH              107
+#define IDI_ABOUT               108
+#define IDI_PIN                 109
+#define IDI_SHOW_ALL            110
+#define IDI_COPY                111
+#define IDI_EXIT                112
+#define IDI_DELETE              113
+#define IDI_HIDE_ALL            114
+#define IDI_GROUP               115
 
 // Tray context menu
 #define IDR_TRAY_MENU           200
@@ -48,9 +61,13 @@
 #define ID_TRAY_SETTINGS        311
 #define ID_TRAY_ABOUT           313
 
-// Note list: Settings dialog + About
+// Note list: Settings dialog + About + Search
 #define ID_NL_SETTINGS          312
 #define ID_NL_ABOUT             314
+#define ID_NL_SEARCH            315
+
+// Tray menu: Search
+#define ID_TRAY_SEARCH          206
 
 // Settings dialog control IDs
 #define IDC_SETTINGS_TAB        500
@@ -99,6 +116,7 @@
 #define IDC_CASCADE_RESET_EDIT  546
 #define IDC_CASCADE_RESET_SPIN  547
 #define IDC_DEFAULT_FOLDER      548
+#define IDC_SEARCH_EDIT         549
 
 // Folder management
 #define ID_NL_FOLDER_NEW        240

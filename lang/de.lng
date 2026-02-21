@@ -13,6 +13,7 @@ menu.note_list=Notiz&liste...
 menu.settings=&Einstellungen
 menu.language=&Sprache
 menu.about=&Info
+menu.search=&Suchen...
 menu.exit=&Beenden
 
 note.edit=&Bearbeiten	Enter
@@ -50,6 +51,8 @@ notelist.col_ontop=Vordergrund
 notelist.options=&Optionen
 notelist.preview=&Vorschau
 notelist.folder_menu=&Ordner
+notelist.tb_search=Suchen
+notelist.search_placeholder=Suchen...
 
 folder.new=Neuer Ordner
 folder.rename=Ordner umbenennen
@@ -96,7 +99,12 @@ settings.sc_newnote=Neue Notiz
 settings.sc_global_new=Neue Notiz (Global)
 settings.sc_global_list=Notizliste (Global)
 
-settings.autosave=Autosave-Intervall:
+settings.group_display=Anzeigen
+settings.group_delete=Löschen
+settings.group_save=Speichern
+settings.group_tray=System Tray
+
+settings.autosave=Automatisch alle
 settings.seconds=Sek.
 settings.confirm_delete=Lösch-Bestätigung anzeigen
 settings.preview_enabled=Vorschau in Notizliste aktivieren
@@ -105,7 +113,7 @@ settings.tray_dblclick=Tray-Doppelklick:
 settings.tray_newnote=Neue Notiz
 settings.tray_notelist=Notizliste öffnen
 settings.tray_showall=Alle anzeigen
-settings.language=Sprache:
+settings.language=Sprache
 
 settings.newnote_x=Neue Notiz - Position X:
 settings.newnote_y=Neue Notiz - Position Y:

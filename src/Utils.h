@@ -143,6 +143,19 @@ inline HBITMAP LoadShellMenuBitmap(SHSTOCKICONID id) {
     return hBmp;
 }
 
+// Load an icon resource as menu-ready HBITMAP (small icon size)
+inline HBITMAP LoadResourceMenuBitmap(UINT iconId) {
+    HINSTANCE hInst = GetModuleHandleW(nullptr);
+    int cx = GetSystemMetrics(SM_CXSMICON);
+    int cy = GetSystemMetrics(SM_CYSMICON);
+    HICON hIcon = static_cast<HICON>(LoadImageW(hInst, MAKEINTRESOURCE(iconId),
+                                                 IMAGE_ICON, cx, cy, LR_DEFAULTCOLOR));
+    if (!hIcon) return nullptr;
+    HBITMAP hBmp = IconToBitmap(hIcon, cx, cy);
+    DestroyIcon(hIcon);
+    return hBmp;
+}
+
 // Get the directory containing the running EXE
 inline std::wstring GetExeDirectory() {
     wchar_t path[MAX_PATH];

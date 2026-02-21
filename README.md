@@ -147,8 +147,10 @@ Every push to `master` triggers automatic Debug and Release builds. Download the
 - [x] **Phase 1.5** — Note list toolbar, settings persistence, bug fixes
 - [x] **Phase 1.7** — Note list preview, release build optimization
 - [x] **Phase 2** — Settings dialog, global hotkeys, about dialog
-- [ ] **Phase 3** — Alarm system, print support, minimize/restore
-- [ ] **Phase 4** — Network features, note templates, import/export
+- [x] **Phase 2.5** — Search function in note list
+- [x] **Phase 3** — Custom icons replacing shell stock icons
+- [ ] **Phase 4** — Alarm system, print support, minimize/restore
+- [ ] **Phase 5** — Network features, note templates, import/export
 
 ---
 
@@ -160,6 +162,12 @@ Every push to `master` triggers automatic Debug and Release builds. Download the
 ---
 
 ## 📝 Changelog
+
+### v0.6 Alpha (2026-02-21)
+- Custom icon set replacing Windows shell stock icons
+- New icons: New, Search, About, Pin, ShowAll, HideAll, Delete, Copy, Exit, Group
+- Settings dialog: group headers with icons in General tab
+- Search function in note list toolbar with live filtering
 
 ### v0.5 Alpha (2026-02-20)
 - Initial public release

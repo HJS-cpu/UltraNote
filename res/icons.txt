@@ -1,0 +1,20 @@
+Icon-Dateinamen fuer res/ Ordner
+=================================
+
+Dateiname        Resource-ID      Verwendung
+-----------      -----------      ----------
+new.ico          IDI_NEW          Neue Notiz
+edit.ico         IDI_EDIT         Bearbeiten
+delete.ico       IDI_DELETE       Loeschen
+show_all.ico     IDI_SHOW_ALL     Alle anzeigen
+hide_all.ico     IDI_HIDE_ALL     Alle verstecken
+rename.ico       IDI_RENAME       Umbenennen
+search.ico       IDI_SEARCH       Suchen
+settings.ico     IDI_SETTINGS     Einstellungen
+about.ico        IDI_ABOUT        Info/About
+notelist.ico     IDI_NOTELIST     Notizliste
+pin.ico          IDI_PIN          Immer im Vordergrund
+paste.ico        IDI_PASTE        Einfuegen
+exit.ico         IDI_EXIT         Beenden
+
+Format: Multi-Size (16/20/24/32px), 32-bit RGBA

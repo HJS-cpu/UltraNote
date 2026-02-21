@@ -20,6 +20,7 @@ public:
 
     void Refresh();
     void SetPreviewEnabled(bool enabled);
+    void FocusSearchField();
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -60,16 +61,23 @@ private:
                             const std::wstring& title, std::wstring& value);
     static INT_PTR CALLBACK InputDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+    void CreateSearchEdit();
+    static LRESULT CALLBACK SearchEditSubclassProc(
+        HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+        UINT_PTR subId, DWORD_PTR refData);
+
     HWND       m_hwnd           = nullptr;
     HWND       m_hToolbar       = nullptr;
     HWND       m_hFolderList    = nullptr;
     HWND       m_hListView      = nullptr;
+    HWND       m_hSearchEdit    = nullptr;
     HINSTANCE  m_hInst          = nullptr;
     HIMAGELIST m_hToolbarImages = nullptr;
     HICON      m_hFolderIcon    = nullptr;
     HICON      m_hAllNotesIcon  = nullptr;
 
     std::wstring m_selectedFolder;  // Empty = show all notes
+    std::wstring m_searchQuery;    // Empty = no filter
 
     int  m_sortColumn    = -1;
     bool m_sortAscending = true;
