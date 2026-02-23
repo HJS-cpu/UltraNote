@@ -30,7 +30,7 @@ public:
 
     // Note access
     NoteData*              FindNoteData(uint64_t id);
-    std::vector<NoteData>& GetAllNotes() { return m_notes; }
+    std::vector<std::unique_ptr<NoteData>>& GetAllNotes() { return m_notes; }
 
     // Folder management
     const std::vector<std::wstring>& GetFolders() const { return m_folders; }
@@ -98,13 +98,13 @@ private:
     static LRESULT CALLBACK AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-    NoteWindow* CreateNoteWindow(NoteData& data);
+    NoteWindow* CreateNoteWindow(NoteData* data);
 
     HINSTANCE       m_hInst     = nullptr;
     HWND            m_hAppWnd   = nullptr;
     NOTIFYICONDATA  m_nid       = {};
 
-    std::vector<NoteData>                        m_notes;
+    std::vector<std::unique_ptr<NoteData>>       m_notes;
     std::vector<std::wstring>                    m_folders;
     std::unordered_map<uint64_t, NoteWindow*>    m_noteWindows;
     std::unique_ptr<NoteListWindow>              m_noteListWindow;

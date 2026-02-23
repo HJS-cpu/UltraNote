@@ -75,7 +75,7 @@ std::wstring Storage::SerializeNote(const NoteData& note) {
     return s;
 }
 
-std::wstring Storage::SerializeNotes(const std::vector<NoteData>& notes, uint64_t nextId,
+std::wstring Storage::SerializeNotes(const std::vector<std::unique_ptr<NoteData>>& notes, uint64_t nextId,
                                       const std::vector<std::wstring>& folders) {
     std::wstring s;
     s += L"{\n";
@@ -89,7 +89,7 @@ std::wstring Storage::SerializeNotes(const std::vector<NoteData>& notes, uint64_
     s += L"],\n";
     s += L"  \"notes\": [\n";
     for (size_t i = 0; i < notes.size(); ++i) {
-        s += SerializeNote(notes[i]);
+        s += SerializeNote(*notes[i]);
         if (i + 1 < notes.size()) s += L",";
         s += L"\n";
     }
@@ -98,7 +98,7 @@ std::wstring Storage::SerializeNotes(const std::vector<NoteData>& notes, uint64_
     return s;
 }
 
-bool Storage::SaveNotes(const std::vector<NoteData>& notes, uint64_t nextId,
+bool Storage::SaveNotes(const std::vector<std::unique_ptr<NoteData>>& notes, uint64_t nextId,
                          const std::vector<std::wstring>& folders) {
     std::wstring json = SerializeNotes(notes, nextId, folders);
     std::wstring filePath = GetNotesFilePath();
@@ -399,7 +399,7 @@ bool Storage::ParseStringArray(const wchar_t*& p, std::vector<std::wstring>& out
     return Expect(p, L']');
 }
 
-bool Storage::ParseNotes(const std::wstring& json, std::vector<NoteData>& notes,
+bool Storage::ParseNotes(const std::wstring& json, std::vector<std::unique_ptr<NoteData>>& notes,
                           uint64_t& nextId, std::vector<std::wstring>& folders) {
     const wchar_t* p = json.c_str();
 
@@ -428,8 +428,8 @@ bool Storage::ParseNotes(const std::wstring& json, std::vector<NoteData>& notes,
             SkipWhitespace(p);
             while (*p && *p != L']') {
                 if (*p == L']') break;
-                NoteData note;
-                if (!ParseNoteObject(p, note)) return false;
+                auto note = std::make_unique<NoteData>();
+                if (!ParseNoteObject(p, *note)) return false;
                 notes.push_back(std::move(note));
                 SkipWhitespace(p);
                 if (*p == L',') ++p;
@@ -447,9 +447,9 @@ bool Storage::ParseNotes(const std::wstring& json, std::vector<NoteData>& notes,
     return true;
 }
 
-std::vector<NoteData> Storage::LoadNotes(uint64_t& outNextId,
-                                          std::vector<std::wstring>& outFolders) {
-    std::vector<NoteData> notes;
+std::vector<std::unique_ptr<NoteData>> Storage::LoadNotes(uint64_t& outNextId,
+                                                            std::vector<std::wstring>& outFolders) {
+    std::vector<std::unique_ptr<NoteData>> notes;
     outNextId = 1;
 
     std::wstring filePath = GetNotesFilePath();

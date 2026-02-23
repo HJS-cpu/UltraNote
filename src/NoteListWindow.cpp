@@ -1015,7 +1015,7 @@ void NoteListWindow::PopulateList() {
 
     int insertIdx = 0;
     for (size_t i = 0; i < notes.size(); ++i) {
-        auto& note = notes[i];
+        auto& note = *notes[i];
 
         // Filter by selected folder
         if (!m_selectedFolder.empty()) {

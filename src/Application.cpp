@@ -50,8 +50,8 @@ bool Application::Initialize(HINSTANCE hInst) {
 
     // Create windows for visible notes
     for (auto& note : m_notes) {
-        if (!note.isHidden) {
-            CreateNoteWindow(note);
+        if (!note->isHidden) {
+            CreateNoteWindow(note.get());
         }
     }
 
@@ -471,24 +471,24 @@ void Application::ShowTrayMenu() {
 NoteWindow* Application::CreateNewNote() {
     auto settings = SettingsDialog::LoadFromStorage();
 
-    NoteData note;
-    note.id = m_nextId++;
-    note.x = m_cascadeX;
-    note.y = m_cascadeY;
-    note.createdAt = static_cast<int64_t>(std::time(nullptr));
-    note.modifiedAt = note.createdAt;
+    auto note = std::make_unique<NoteData>();
+    note->id = m_nextId++;
+    note->x = m_cascadeX;
+    note->y = m_cascadeY;
+    note->createdAt = static_cast<int64_t>(std::time(nullptr));
+    note->modifiedAt = note->createdAt;
 
     // Apply default layout from settings
-    note.layout.backgroundColor = settings.bgColor;
-    note.layout.textColor       = settings.textColor;
-    note.layout.borderColor     = settings.borderColor;
-    note.layout.fontFace        = settings.fontFace;
-    note.layout.fontSizePts     = settings.fontSize;
-    note.layout.fontBold        = settings.fontBold;
-    note.layout.fontItalic      = settings.fontItalic;
+    note->layout.backgroundColor = settings.bgColor;
+    note->layout.textColor       = settings.textColor;
+    note->layout.borderColor     = settings.borderColor;
+    note->layout.fontFace        = settings.fontFace;
+    note->layout.fontSizePts     = settings.fontSize;
+    note->layout.fontBold        = settings.fontBold;
+    note->layout.fontItalic      = settings.fontItalic;
 
     // Apply default folder from settings
-    note.folder = settings.defaultFolder;
+    note->folder = settings.defaultFolder;
 
     // Cascade position for next note
     m_cascadeX += settings.cascadeStep;
@@ -496,8 +496,9 @@ NoteWindow* Application::CreateNewNote() {
     if (m_cascadeX > settings.cascadeReset) m_cascadeX = settings.newNoteX;
     if (m_cascadeY > settings.cascadeReset) m_cascadeY = settings.newNoteY;
 
+    NoteData* raw = note.get();
     m_notes.push_back(std::move(note));
-    NoteWindow* wnd = CreateNoteWindow(m_notes.back());
+    NoteWindow* wnd = CreateNoteWindow(raw);
 
     m_dirty = true;
     RefreshNoteList();
@@ -527,9 +528,9 @@ NoteWindow* Application::CreateNoteFromClipboard() {
     return wnd;
 }
 
-NoteWindow* Application::CreateNoteWindow(NoteData& data) {
-    auto* wnd = new NoteWindow(&data, m_hInst);
-    m_noteWindows[data.id] = wnd;
+NoteWindow* Application::CreateNoteWindow(NoteData* data) {
+    auto* wnd = new NoteWindow(data, m_hInst);
+    m_noteWindows[data->id] = wnd;
     return wnd;
 }
 
@@ -543,7 +544,13 @@ void Application::RequestDeleteNote(uint64_t id) {
 
     auto settings = SettingsDialog::LoadFromStorage();
     if (settings.confirmDelete) {
-        int result = MessageBoxW(nullptr, Ls(L"confirm.delete_one").c_str(), L"UltraNote",
+        // Use note's HWND as owner to avoid application-modal behavior
+        // (nullptr owner disables ALL top-level windows, hiding tool windows)
+        HWND ownerWnd = nullptr;
+        auto wit = m_noteWindows.find(id);
+        if (wit != m_noteWindows.end())
+            ownerWnd = wit->second->GetHwnd();
+        int result = MessageBoxW(ownerWnd, Ls(L"confirm.delete_one").c_str(), L"UltraNote",
                                   MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
         if (result != IDYES) return;
     }
@@ -557,11 +564,24 @@ void Application::RequestDeleteNote(uint64_t id) {
 
     // Remove data
     m_notes.erase(std::remove_if(m_notes.begin(), m_notes.end(),
-        [id](const NoteData& n) { return n.id == id; }), m_notes.end());
+        [id](const std::unique_ptr<NoteData>& n) { return n->id == id; }), m_notes.end());
 
     m_dirty = true;
     SaveAll();
     RefreshNoteList();
+
+    // Re-show remaining visible notes (destroying a WS_POPUP|WS_EX_TOOLWINDOW
+    // window can cause sibling tool windows to lose visibility)
+    for (auto& [nid, wnd] : m_noteWindows) {
+        if (!wnd->GetData()->isHidden) {
+            SetWindowPos(wnd->GetHwnd(), HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            if (!wnd->GetData()->layout.alwaysOnTop) {
+                SetWindowPos(wnd->GetHwnd(), HWND_NOTOPMOST, 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+        }
+    }
 }
 
 void Application::DeleteSelectedNotes() {
@@ -577,7 +597,12 @@ void Application::DeleteSelectedNotes() {
             msg = FormatString(Ls(L"confirm.delete_multi").c_str(), static_cast<int>(selected.size()));
         }
 
-        int result = MessageBoxW(nullptr, msg.c_str(), L"UltraNote",
+        // Use first selected note's HWND as owner to avoid application-modal behavior
+        HWND ownerWnd = nullptr;
+        auto wit = m_noteWindows.find(selected.front());
+        if (wit != m_noteWindows.end())
+            ownerWnd = wit->second->GetHwnd();
+        int result = MessageBoxW(ownerWnd, msg.c_str(), L"UltraNote",
                                   MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
         if (result != IDYES) return;
     }
@@ -589,12 +614,25 @@ void Application::DeleteSelectedNotes() {
             m_noteWindows.erase(it);
         }
         m_notes.erase(std::remove_if(m_notes.begin(), m_notes.end(),
-            [id](const NoteData& n) { return n.id == id; }), m_notes.end());
+            [id](const std::unique_ptr<NoteData>& n) { return n->id == id; }), m_notes.end());
     }
 
     m_dirty = true;
     SaveAll();
     RefreshNoteList();
+
+    // Re-show remaining visible notes (destroying a WS_POPUP|WS_EX_TOOLWINDOW
+    // window can cause sibling tool windows to lose visibility)
+    for (auto& [nid, wnd] : m_noteWindows) {
+        if (!wnd->GetData()->isHidden) {
+            SetWindowPos(wnd->GetHwnd(), HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            if (!wnd->GetData()->layout.alwaysOnTop) {
+                SetWindowPos(wnd->GetHwnd(), HWND_NOTOPMOST, 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+        }
+    }
 }
 
 void Application::MarkDirty() {
@@ -609,7 +647,7 @@ void Application::SaveAll() {
 
 NoteData* Application::FindNoteData(uint64_t id) {
     for (auto& note : m_notes) {
-        if (note.id == id) return &note;
+        if (note->id == id) return note.get();
     }
     return nullptr;
 }
@@ -665,12 +703,12 @@ void Application::MoveSelectedNotes(int dx, int dy, uint64_t excludeId) {
 void Application::ShowAllNotes() {
     m_notesVisible = true;
     for (auto& note : m_notes) {
-        note.isHidden = false;
-        auto it = m_noteWindows.find(note.id);
+        note->isHidden = false;
+        auto it = m_noteWindows.find(note->id);
         if (it != m_noteWindows.end()) {
             it->second->Show(true);
         } else {
-            CreateNoteWindow(note);
+            CreateNoteWindow(note.get());
         }
     }
     m_dirty = true;
@@ -679,8 +717,8 @@ void Application::ShowAllNotes() {
 void Application::HideAllNotes() {
     m_notesVisible = false;
     for (auto& note : m_notes) {
-        note.isHidden = true;
-        auto it = m_noteWindows.find(note.id);
+        note->isHidden = true;
+        auto it = m_noteWindows.find(note->id);
         if (it != m_noteWindows.end()) {
             it->second->Show(false);
         }
@@ -699,7 +737,7 @@ void Application::BringNoteToFront(uint64_t id) {
         NoteData* data = FindNoteData(id);
         if (!data) return;
         data->isHidden = false;
-        CreateNoteWindow(*data);
+        CreateNoteWindow(data);
         it = m_noteWindows.find(id);
         m_dirty = true;
     } else if (it->second->GetData()->isHidden) {
@@ -721,7 +759,7 @@ NoteWindow* Application::ShowNotePreview(uint64_t id) {
         NoteData* data = FindNoteData(id);
         if (!data) return nullptr;
         data->isHidden = false;
-        CreateNoteWindow(*data);
+        CreateNoteWindow(data);
         it = m_noteWindows.find(id);
         m_dirty = true;
     } else if (it->second->GetData()->isHidden) {
@@ -837,7 +875,7 @@ void Application::RenameFolder(const std::wstring& oldName, const std::wstring& 
 
     // Update all notes in this folder
     for (auto& note : m_notes) {
-        if (note.folder == oldName) note.folder = newName;
+        if (note->folder == oldName) note->folder = newName;
     }
     m_dirty = true;
     RefreshNoteList();
@@ -851,7 +889,7 @@ void Application::DeleteFolder(const std::wstring& name) {
 
     // Move notes to no folder
     for (auto& note : m_notes) {
-        if (note.folder == name) note.folder.clear();
+        if (note->folder == name) note->folder.clear();
     }
     m_dirty = true;
     RefreshNoteList();
@@ -910,9 +948,9 @@ void Application::ApplySettings() {
 
     for (auto& note : m_notes) {
         // Preserve per-note alwaysOnTop
-        bool ontop = note.layout.alwaysOnTop;
-        note.layout = defaultLayout;
-        note.layout.alwaysOnTop = ontop;
+        bool ontop = note->layout.alwaysOnTop;
+        note->layout = defaultLayout;
+        note->layout.alwaysOnTop = ontop;
     }
     for (auto& [id, wnd] : m_noteWindows) {
         InvalidateRect(wnd->GetHwnd(), nullptr, TRUE);

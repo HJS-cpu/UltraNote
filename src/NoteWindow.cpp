@@ -109,9 +109,9 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                         Application::Get().SelectNote(m_data->id, true);
                     }
                 } else {
-                    if (!m_selected) {
-                        Application::Get().SelectNote(m_data->id, false);
-                    }
+                    // Simple click: clear multi-selection, don't select this note
+                    // Selection indicator (dashed border) is only for Ctrl+Click multi-select
+                    Application::Get().ClearSelection();
                     StartDrag(x, y);
                 }
             }
@@ -160,7 +160,7 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_LBUTTONDBLCLK: {
             if (!m_inEditMode) {
-                Application::Get().SelectNote(m_data->id, false);
+                Application::Get().ClearSelection();
                 EnterEditMode();
             }
             return 0;
@@ -169,9 +169,7 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_RBUTTONUP: {
             POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
             ClientToScreen(m_hwnd, &pt);
-            if (!m_selected) {
-                Application::Get().SelectNote(m_data->id, false);
-            }
+            Application::Get().ClearSelection();
             ShowContextMenu(pt.x, pt.y);
             return 0;
         }

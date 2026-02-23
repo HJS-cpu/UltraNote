@@ -4,16 +4,17 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <memory>
 #include <cstdint>
 
 class Storage {
 public:
     // Load all notes from notes.json; returns empty vector if file missing
-    static std::vector<NoteData> LoadNotes(uint64_t& outNextId,
-                                            std::vector<std::wstring>& outFolders);
+    static std::vector<std::unique_ptr<NoteData>> LoadNotes(uint64_t& outNextId,
+                                                              std::vector<std::wstring>& outFolders);
 
     // Save all notes to notes.json (atomic: write .tmp then rename)
-    static bool SaveNotes(const std::vector<NoteData>& notes, uint64_t nextId,
+    static bool SaveNotes(const std::vector<std::unique_ptr<NoteData>>& notes, uint64_t nextId,
                           const std::vector<std::wstring>& folders);
 
     // Get the path to notes.json (in EXE directory)
@@ -35,13 +36,13 @@ public:
 
 private:
     // JSON writing helpers
-    static std::wstring SerializeNotes(const std::vector<NoteData>& notes, uint64_t nextId,
+    static std::wstring SerializeNotes(const std::vector<std::unique_ptr<NoteData>>& notes, uint64_t nextId,
                                         const std::vector<std::wstring>& folders);
     static std::wstring SerializeNote(const NoteData& note);
     static std::wstring ColorToHex(COLORREF c);
 
     // JSON reading helpers
-    static bool ParseNotes(const std::wstring& json, std::vector<NoteData>& notes,
+    static bool ParseNotes(const std::wstring& json, std::vector<std::unique_ptr<NoteData>>& notes,
                            uint64_t& nextId, std::vector<std::wstring>& folders);
     static bool ParseStringArray(const wchar_t*& p, std::vector<std::wstring>& out);
     static std::wstring UnescapeJsonString(const std::wstring& s);
