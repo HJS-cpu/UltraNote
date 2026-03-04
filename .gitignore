@@ -33,6 +33,9 @@ cmake_install.cmake
 CLAUDE.md
 Projekt.md
 
+# GitHub-specific (keep locally, don't push)
+.github/
+
 # OS files
 Thumbs.db
 desktop.ini
