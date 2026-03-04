@@ -1,18 +1,12 @@
 # UltraNote
 
-[![Build UltraNote](https://github.com/HJS-cpu/UltraNote/actions/workflows/build.yml/badge.svg)](https://github.com/HJS-cpu/UltraNote/actions/workflows/build.yml)
-
 A modern recreation of **ATnotes** (the classic sticky notes app from 2005) built with pure Win32 API and C++17. Lightweight, portable, and dependency-free.
-
-![Windows 10/11](https://img.shields.io/badge/Windows-10%2F11-blue?logo=windows)
-![C++17](https://img.shields.io/badge/C%2B%2B-17-blue?logo=cplusplus)
-![License](https://img.shields.io/badge/License-Proprietary-red)
 
 ---
 
-## ✨ Features
+## Features
 
-### 📝 Sticky Notes
+### Sticky Notes
 
 | Feature | Description |
 |---------|-------------|
@@ -25,7 +19,7 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 | **Copy to Clipboard** | Copy note text with a single keystroke |
 | **Folders** | Organize notes into custom folders |
 
-### 📋 Note List
+### Note List
 
 | Feature | Description |
 |---------|-------------|
@@ -35,22 +29,22 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 | **Toolbar** | New, Edit, Delete, Show All, Hide All with icon toolbar |
 | **Context Menu** | Right-click for rename, folder assignment, and more |
 
-### ⚙️ Settings Dialog
+### Settings Dialog
 
 | Tab | Options |
 |-----|---------|
 | **Layout** | Default background, text, and border colors; font selection; live preview |
-| **Keyboard** | Customize all shortcuts (7 local + 2 global hotkeys) |
+| **Keyboard** | Customize all shortcuts (2 local + 2 global hotkeys) |
 | **General** | Autosave interval, delete confirmation, preview toggle & delay, tray behavior, language |
 | **Misc** | New note position, cascade step/reset, default folder |
 
-### 🌐 Localization
+### Localization
 
 - Full **English** and **German** language support
 - INI-based language files — easy to add new languages
 - Live language switching without restart
 
-### 🔑 Global Hotkeys
+### Global Hotkeys
 
 | Shortcut | Action |
 |----------|--------|
@@ -59,19 +53,15 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 
 ---
 
-## 📥 Download
-
-### 💾 Latest Build
-
-**[⬇️ Download from GitHub Actions](https://github.com/HJS-cpu/UltraNote/actions/workflows/build.yml)**
-
-Select the latest successful run and download the **UltraNote-Release** artifact.
+## Download
 
 > **Portable:** Single EXE, no installation needed. All data (notes, settings) stored next to the executable.
 
+Pre-built Release artifacts are available via the [GitLab CI pipeline](https://gitlab.com/HJS-cpu/ultranote/-/pipelines). Select the latest successful run and download the **UltraNote-Release** artifact.
+
 ---
 
-## 🖥️ System Requirements
+## System Requirements
 
 - Windows 10 or later
 - No installation required
@@ -80,7 +70,7 @@ Select the latest successful run and download the **UltraNote-Release** artifact
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 | Aspect | Detail |
 |--------|--------|
@@ -113,13 +103,12 @@ UltraNote/
 │   ├── UltraNote.rc          # Resources
 │   ├── UltraNote.ico         # Application icon
 │   └── UltraNote.manifest    # ComCtl v6, DPI awareness
-└── .github/workflows/
-    └── build.yml             # CI: Debug + Release builds
+└── .gitlab-ci.yml            # CI: Debug + Release builds
 ```
 
 ---
 
-## 🛠️ Building from Source
+## Building from Source
 
 ### Prerequisites
 
@@ -135,13 +124,13 @@ cmake --build build --config Release
 
 The executable and language files will be in `build/Release/`.
 
-### CI / GitHub Actions
+### CI / GitLab CI
 
-Every push to `master` triggers automatic Debug and Release builds. Download the Release artifact from the [Actions](https://github.com/HJS-cpu/UltraNote/actions) tab.
+Every push to `master` triggers automatic Debug and Release builds via a self-hosted Windows runner. Download the Release artifact from the [Pipelines](https://gitlab.com/HJS-cpu/ultranote/-/pipelines) page.
 
 ---
 
-## 🎯 Roadmap
+## Roadmap
 
 - [x] **Phase 1** — MVP: Notes, tray, persistence, multi-select, localization
 - [x] **Phase 1.5** — Note list toolbar, settings persistence, bug fixes
@@ -154,14 +143,14 @@ Every push to `master` triggers automatic Debug and Release builds. Download the
 
 ---
 
-## 🙏 Credits
+## Credits
 
 - **Inspired by** ATnotes by Thomas Ascher
 - **Modern recreation:** HJS (2026)
 
 ---
 
-## 📝 Changelog
+## Changelog
 
 ### v0.6 Alpha (2026-02-21)
 - Custom icon set replacing Windows shell stock icons
@@ -180,4 +169,4 @@ Every push to `master` triggers automatic Debug and Release builds. Download the
 - About dialog with version info
 - English and German localization
 - JSON-based portable storage
-- GitHub Actions CI pipeline
+- GitLab CI pipeline

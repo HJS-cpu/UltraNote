@@ -36,6 +36,9 @@ Projekt.md
 # GitHub-specific (keep locally, don't push)
 .github/
 
+# Local setup docs
+GitLab-Runner-Setup.md
+
 # OS files
 Thumbs.db
 desktop.ini
