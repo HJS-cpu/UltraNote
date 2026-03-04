@@ -139,7 +139,6 @@ Every push to `master` triggers automatic Debug and Release builds via a self-ho
 - [x] **Phase 2.5** — Search function in note list
 - [x] **Phase 3** — Custom icons replacing shell stock icons
 - [ ] **Phase 4** — Alarm system, print support, minimize/restore
-- [ ] **Phase 5** — Network features, note templates, import/export
 
 ---
 
