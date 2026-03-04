@@ -1,0 +1,32 @@
+stages:
+  - build
+
+variables:
+  CMAKE_GENERATOR: "Visual Studio 17 2022"
+
+.build_template: &build_template
+  stage: build
+  tags:
+    - windows
+    - msvc
+  before_script:
+    - cmake -B build -G "%CMAKE_GENERATOR%"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+build-debug:
+  <<: *build_template
+  script:
+    - cmake --build build --config Debug
+
+build-release:
+  <<: *build_template
+  script:
+    - cmake --build build --config Release
+  artifacts:
+    paths:
+      - build/Release/UltraNote.exe
+      - build/Release/lang/
+    expire_in: 30 days
