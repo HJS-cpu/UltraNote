@@ -403,6 +403,34 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                             RenameSelectedNote();
                             return 0;
                         }
+
+                        // Configurable shortcuts from settings
+                        {
+                            auto settings = SettingsDialog::LoadFromStorage();
+                            if (MatchesShortcut(settings.shortcuts[SC_DELETE], kd->wVKey)) {
+                                DeleteSelectedNotes();
+                                return 0;
+                            }
+                            if (MatchesShortcut(settings.shortcuts[SC_ALWAYS_ON_TOP], kd->wVKey)) {
+                                // Toggle always-on-top for all selected notes
+                                int idx = -1;
+                                while ((idx = ListView_GetNextItem(m_hListView, idx, LVNI_SELECTED)) != -1) {
+                                    LVITEMW item = {};
+                                    item.mask = LVIF_PARAM;
+                                    item.iItem = idx;
+                                    if (ListView_GetItem(m_hListView, &item)) {
+                                        uint64_t noteId = static_cast<uint64_t>(item.lParam);
+                                        ToggleNoteAlwaysOnTop(noteId);
+                                        NoteData* note = Application::Get().FindNoteData(noteId);
+                                        if (note) {
+                                            ListView_SetItemText(m_hListView, idx, COL_ONTOP,
+                                                const_cast<LPWSTR>(note->layout.alwaysOnTop ? L"\u2611" : L"\u2610"));
+                                        }
+                                    }
+                                }
+                                return 0;
+                            }
+                        }
                         break;
                     }
                     case NM_CUSTOMDRAW: {

@@ -57,7 +57,7 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 
 > **Portable:** Single EXE, no installation needed. All data (notes, settings) stored next to the executable.
 
-Pre-built Release artifacts are available via the [GitLab CI pipeline](https://gitlab.com/HJS-cpu/ultranote/-/pipelines). Select the latest successful run and download the **UltraNote-Release** artifact.
+Download the latest version from the [Releases](https://gitlab.com/HJS-cpu/ultranote/-/releases) page.
 
 ---
 
@@ -103,7 +103,7 @@ UltraNote/
 │   ├── UltraNote.rc          # Resources
 │   ├── UltraNote.ico         # Application icon
 │   └── UltraNote.manifest    # ComCtl v6, DPI awareness
-└── .gitlab-ci.yml            # CI: Debug + Release builds
+└── .gitlab-ci.yml            # CI: build → upload → release
 ```
 
 ---
@@ -126,7 +126,7 @@ The executable and language files will be in `build/Release/`.
 
 ### CI / GitLab CI
 
-Every push to `master` triggers automatic Debug and Release builds via a self-hosted Windows runner. Download the Release artifact from the [Pipelines](https://gitlab.com/HJS-cpu/ultranote/-/pipelines) page.
+Every push to `master` triggers an automatic Release build via GitLab SaaS Windows Runner. Tagged commits (`v*`) create a permanent GitLab Release with download links. See the [Releases](https://gitlab.com/HJS-cpu/ultranote/-/releases) page.
 
 ---
 

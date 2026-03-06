@@ -1,5 +1,6 @@
 #include "NoteWindow.h"
 #include "Application.h"
+#include "SettingsDialog.h"
 #include "Localization.h"
 #include "Utils.h"
 #include "Resource.h"
@@ -177,9 +178,21 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_KEYDOWN: {
             if (m_inEditMode) break; // Let edit control handle
 
-            switch (wParam) {
-                case VK_DELETE:
-                case 'D': {
+            // Hardcoded shortcuts (not configurable)
+            if (wParam == VK_RETURN) {
+                EnterEditMode();
+                return 0;
+            }
+            if (wParam == VK_F2) {
+                HandleMenuCommand(ID_NOTE_RENAME);
+                return 0;
+            }
+
+            // Configurable shortcuts from settings
+            {
+                auto settings = SettingsDialog::LoadFromStorage();
+
+                if (MatchesShortcut(settings.shortcuts[SC_DELETE], wParam)) {
                     HWND appWnd = FindWindowW(L"UltraNoteApp", L"UltraNote");
                     if (appWnd)
                         PostMessageW(appWnd, WM_NOTE_REQUEST_DELETE,
@@ -187,21 +200,13 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     return 0;
                 }
 
-                case VK_RETURN:
-                case 'E':
-                    EnterEditMode();
-                    return 0;
-
-                case VK_F2:
-                    HandleMenuCommand(ID_NOTE_RENAME);
-                    return 0;
-
-                case 'O':
+                if (MatchesShortcut(settings.shortcuts[SC_ALWAYS_ON_TOP], wParam)) {
                     m_data->layout.alwaysOnTop = !m_data->layout.alwaysOnTop;
                     SetWindowPos(m_hwnd, m_data->layout.alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
                                  0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
                     NotifyChanged();
                     return 0;
+                }
             }
             break;
         }
@@ -611,6 +616,36 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
     addItem(ID_NOTE_RENAME, Ls(L"note.rename").c_str(), SIID_DOCASSOC);
     addItemRes(ID_NOTE_COPY, Ls(L"note.copy").c_str(), IDI_COPY);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
+
+    // "Set Folder" submenu
+    HMENU hFolderSub = CreatePopupMenu();
+    if (hFolderSub) {
+        UINT noFolderFlags = MF_STRING;
+        if (m_data->folder.empty()) noFolderFlags |= MF_CHECKED;
+        AppendMenuW(hFolderSub, noFolderFlags, ID_NL_FOLDER_BASE, Ls(L"note.no_folder").c_str());
+        auto& folders = app.GetFolders();
+        if (!folders.empty())
+            AppendMenuW(hFolderSub, MF_SEPARATOR, 0, nullptr);
+        for (size_t i = 0; i < folders.size() && i + 1 < (ID_NL_FOLDER_MAX - ID_NL_FOLDER_BASE); ++i) {
+            UINT flags = MF_STRING;
+            if (m_data->folder == folders[i]) flags |= MF_CHECKED;
+            AppendMenuW(hFolderSub, flags,
+                        ID_NL_FOLDER_BASE + static_cast<UINT>(i + 1),
+                        folders[i].c_str());
+        }
+        {
+            MENUITEMINFOW mii = {};
+            mii.cbSize     = sizeof(mii);
+            mii.fMask      = MIIM_STRING | MIIM_SUBMENU | MIIM_BITMAP;
+            mii.hSubMenu   = hFolderSub;
+            std::wstring folderLabel = Ls(L"notelist.set_folder");
+            mii.dwTypeData = const_cast<wchar_t*>(folderLabel.c_str());
+            mii.hbmpItem   = app.GetResourceBitmap(IDI_FOLDER);
+            InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
+        }
+    }
+
+    AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
     addItemRes(ID_NOTE_HIDE, Ls(L"note.hide").c_str(), IDI_HIDE_ALL);
     addItemRes(ID_NOTE_DELETE, Ls(L"note.delete").c_str(), IDI_DELETE);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
@@ -758,6 +793,20 @@ void NoteWindow::HandleMenuCommand(int cmd) {
                     SetClipboardData(CF_UNICODETEXT, hMem);
                 }
                 CloseClipboard();
+            }
+            break;
+
+        default:
+            // Folder assignment from submenu
+            if (cmd >= ID_NL_FOLDER_BASE && cmd <= ID_NL_FOLDER_MAX) {
+                UINT folderIdx = static_cast<UINT>(cmd) - ID_NL_FOLDER_BASE;
+                std::wstring targetFolder;
+                if (folderIdx > 0) {
+                    auto& folders = Application::Get().GetFolders();
+                    if (folderIdx - 1 < folders.size())
+                        targetFolder = folders[folderIdx - 1];
+                }
+                Application::Get().SetNoteFolder(m_data->id, targetFolder);
             }
             break;
     }

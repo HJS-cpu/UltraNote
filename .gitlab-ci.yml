@@ -1,32 +1,108 @@
 stages:
   - build
+  - upload
+  - release
 
-variables:
-  CMAKE_GENERATOR: "Visual Studio 17 2022"
-
-.build_template: &build_template
+# ==============================================================================
+# Stage 1: Build (GitLab SaaS Windows Runner)
+# ==============================================================================
+build:
   stage: build
   tags:
-    - windows
-    - msvc
-  before_script:
-    - cmake -B build -G "%CMAKE_GENERATOR%"
+    - saas-windows-medium-amd64
   rules:
-    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_TAG =~ /^v/
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_PIPELINE_SOURCE == "web"
-
-build-debug:
-  <<: *build_template
   script:
-    - cmake --build build --config Debug
+    - |
+      @'
+      @echo off
+      setlocal enabledelayedexpansion
 
-build-release:
-  <<: *build_template
-  script:
-    - cmake --build build --config Release
+      REM === Find CMake ===
+      set CMAKE_EXE=
+      where cmake >nul 2>&1 && (
+        set "CMAKE_EXE=cmake"
+        goto :found_cmake
+      )
+      for %%p in (
+        "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+        "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+        "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+      ) do (
+        if exist %%p (
+          set "CMAKE_EXE=%%~p"
+          goto :found_cmake
+        )
+      )
+      echo ERROR: Could not find CMake
+      exit /b 1
+
+      :found_cmake
+      echo Using CMake: !CMAKE_EXE!
+
+      echo === Configuring (Release) ===
+      "!CMAKE_EXE!" -B build -G "Visual Studio 17 2022"
+      if errorlevel 1 exit /b 1
+
+      echo === Building Release ===
+      "!CMAKE_EXE!" --build build --config Release
+      if errorlevel 1 exit /b 1
+
+      echo === Build complete ===
+      dir build\Release\UltraNote.exe
+      '@ | Set-Content -Path ci-build.bat -Encoding ASCII
+    - cmd /c ci-build.bat
+
+    # --- Create portable ZIP ---
+    - Compress-Archive -Path build\Release\UltraNote.exe, build\Release\lang -DestinationPath UltraNote-Portable.zip
   artifacts:
     paths:
-      - build/Release/UltraNote.exe
-      - build/Release/lang/
-    expire_in: 30 days
+      - UltraNote-Portable.zip
+    expire_in: 1 week
+
+# ==============================================================================
+# Stage 2: Upload package (Windows Runner, only on tags)
+# ==============================================================================
+upload:
+  stage: upload
+  tags:
+    - saas-windows-medium-amd64
+  needs:
+    - job: build
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+  script:
+    - |
+      $baseUrl = "$env:CI_API_V4_URL/projects/$env:CI_PROJECT_ID/packages/generic/ultranote/$env:CI_COMMIT_TAG"
+      $headers = @{ "JOB-TOKEN" = $env:CI_JOB_TOKEN }
+
+      Write-Host "Uploading UltraNote-Portable.zip..."
+      Invoke-RestMethod -Uri "$baseUrl/UltraNote-Portable.zip" -Method Put -Headers $headers -InFile UltraNote-Portable.zip
+
+      Write-Host "Upload complete."
+
+# ==============================================================================
+# Stage 3: Create GitLab Release (Linux, only on tags)
+# ==============================================================================
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - job: upload
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+  script:
+    - echo "Creating release for $CI_COMMIT_TAG"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "UltraNote $CI_COMMIT_TAG"
+    description: './RELEASE.md'
+    assets:
+      links:
+        - name: "UltraNote-Portable.zip"
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/ultranote/${CI_COMMIT_TAG}/UltraNote-Portable.zip"
+          link_type: "package"

@@ -17,10 +17,10 @@ menu.search=&Search...
 menu.exit=E&xit
 
 note.edit=&Edit	Enter
-note.copy=&Copy	C
+note.copy=&Copy
 note.delete=&Delete	Del
 note.hide=&Hide
-note.always_on_top=Always on &Top	O
+note.always_on_top=Always on &Top	Alt+O
 note.new_note=&New Note
 note.rename=&Rename	F2
 note.no_folder=(No Folder)
@@ -89,13 +89,8 @@ settings.sc_key=Shortcut
 settings.sc_newkey=New key:
 settings.sc_apply=Apply
 settings.sc_default=Default
-settings.sc_edit=Edit
 settings.sc_delete=Delete
-settings.sc_rename=Rename
 settings.sc_ontop=Always on Top
-settings.sc_hide=Hide
-settings.sc_copy=Copy
-settings.sc_newnote=New Note
 settings.sc_global_new=New Note (Global)
 settings.sc_global_list=Note List (Global)
 

@@ -10,13 +10,8 @@ COLORREF SettingsDialog::s_customColors[16] = {};
 
 // Default shortcut definitions
 static const ShortcutDef s_shortcutDefs[SC_COUNT] = {
-    { SC_EDIT,           L"shortcut.edit",          L"settings.sc_edit",          MAKEWORD(VK_RETURN, 0) },
     { SC_DELETE,         L"shortcut.delete",        L"settings.sc_delete",        MAKEWORD(VK_DELETE, 0) },
-    { SC_RENAME,         L"shortcut.rename",        L"settings.sc_rename",        MAKEWORD(VK_F2, 0) },
-    { SC_ALWAYS_ON_TOP,  L"shortcut.ontop",         L"settings.sc_ontop",         MAKEWORD('O', 0) },
-    { SC_HIDE,           L"shortcut.hide",          L"settings.sc_hide",          MAKEWORD('H', 0) },
-    { SC_COPY,           L"shortcut.copy",          L"settings.sc_copy",          MAKEWORD('C', 0) },
-    { SC_NEW_NOTE,       L"shortcut.newnote",       L"settings.sc_newnote",       MAKEWORD('N', 0) },
+    { SC_ALWAYS_ON_TOP,  L"shortcut.ontop",         L"settings.sc_ontop",         MAKEWORD('O', HOTKEYF_ALT) },
     { SC_GLOBAL_NEWNOTE, L"shortcut.global_new",    L"settings.sc_global_new",    MAKEWORD('N', HOTKEYF_CONTROL | HOTKEYF_SHIFT) },
     { SC_GLOBAL_NOTELIST,L"shortcut.global_list",   L"settings.sc_global_list",   MAKEWORD('L', HOTKEYF_CONTROL | HOTKEYF_SHIFT) },
 };

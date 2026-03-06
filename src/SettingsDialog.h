@@ -9,13 +9,8 @@
 
 // Shortcut action identifiers
 enum ShortcutAction {
-    SC_EDIT = 0,
-    SC_DELETE,
-    SC_RENAME,
+    SC_DELETE = 0,
     SC_ALWAYS_ON_TOP,
-    SC_HIDE,
-    SC_COPY,
-    SC_NEW_NOTE,
     SC_GLOBAL_NEWNOTE,    // Global hotkey: new note from anywhere
     SC_GLOBAL_NOTELIST,   // Global hotkey: toggle note list from anywhere
     SC_COUNT

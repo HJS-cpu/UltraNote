@@ -17,10 +17,10 @@ menu.search=&Suchen...
 menu.exit=&Beenden
 
 note.edit=&Bearbeiten	Enter
-note.copy=&Kopieren	C
+note.copy=&Kopieren
 note.delete=&Löschen	Entf
 note.hide=&Verstecken
-note.always_on_top=Immer im &Vordergrund	O
+note.always_on_top=Immer im &Vordergrund	Alt+O
 note.new_note=&Neue Notiz
 note.rename=&Umbenennen	F2
 note.no_folder=(Kein Ordner)
@@ -89,13 +89,8 @@ settings.sc_key=Tastenkombination
 settings.sc_newkey=Neue Taste:
 settings.sc_apply=Ändern
 settings.sc_default=Standard
-settings.sc_edit=Bearbeiten
 settings.sc_delete=Löschen
-settings.sc_rename=Umbenennen
 settings.sc_ontop=Immer im Vordergrund
-settings.sc_hide=Verstecken
-settings.sc_copy=Kopieren
-settings.sc_newnote=Neue Notiz
 settings.sc_global_new=Neue Notiz (Global)
 settings.sc_global_list=Notizliste (Global)
 

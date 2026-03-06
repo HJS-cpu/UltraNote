@@ -1,6 +1,7 @@
 #pragma once
 
 #include <windows.h>
+#include <commctrl.h>
 #include <shellapi.h>
 #include <string>
 #include <cstdarg>
@@ -154,6 +155,20 @@ inline HBITMAP LoadResourceMenuBitmap(UINT iconId) {
     HBITMAP hBmp = IconToBitmap(hIcon, cx, cy);
     DestroyIcon(hIcon);
     return hBmp;
+}
+
+// Check if a key press matches a configured shortcut (VK + modifiers)
+inline bool MatchesShortcut(WORD shortcut, WPARAM vk) {
+    BYTE scVk = LOBYTE(shortcut);
+    BYTE scMods = HIBYTE(shortcut);
+    if (static_cast<BYTE>(vk) != scVk) return false;
+    bool needCtrl  = (scMods & HOTKEYF_CONTROL) != 0;
+    bool needShift = (scMods & HOTKEYF_SHIFT) != 0;
+    bool needAlt   = (scMods & HOTKEYF_ALT) != 0;
+    bool hasCtrl   = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool hasShift  = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    bool hasAlt    = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    return (needCtrl == hasCtrl) && (needShift == hasShift) && (needAlt == hasAlt);
 }
 
 // Get the directory containing the running EXE

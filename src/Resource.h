@@ -19,6 +19,7 @@
 #define IDI_DELETE              113
 #define IDI_HIDE_ALL            114
 #define IDI_GROUP               115
+#define IDI_FOLDER              116
 
 // Tray context menu
 #define IDR_TRAY_MENU           200
