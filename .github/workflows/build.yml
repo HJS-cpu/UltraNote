@@ -1,0 +1,40 @@
+name: Build UltraNote
+
+on:
+  push:
+    branches: [ master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -G "Visual Studio 17 2022"
+
+      - name: Build Release
+        run: cmake --build build --config Release
+
+      - name: Create portable ZIP
+        run: Compress-Archive -Path build/Release/UltraNote.exe, build/Release/lang -DestinationPath UltraNote-Portable.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UltraNote-Portable
+          path: UltraNote-Portable.zip
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "UltraNote ${{ github.ref_name }}"
+          body_path: RELEASE.md
+          files: UltraNote-Portable.zip
