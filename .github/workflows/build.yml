@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configure CMake
         run: cmake -B build -G "Visual Studio 17 2022"
@@ -26,7 +26,7 @@ jobs:
         run: Compress-Archive -Path build/Release/UltraNote.exe, build/Release/lang -DestinationPath UltraNote-Portable.zip
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: UltraNote-Portable
           path: UltraNote-Portable.zip
