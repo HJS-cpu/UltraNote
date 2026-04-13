@@ -51,6 +51,7 @@ struct SettingsData {
     int      cascadeStep        = 20;
     int      cascadeReset       = 500;
     std::wstring defaultFolder;
+    std::wstring initialText;
 };
 
 class SettingsDialog {
@@ -91,6 +92,7 @@ private:
     void OnShortcutDefault();
     void PopulateLanguageCombo();
     void PopulateFolderCombo();
+    void ShowInsertVariableMenu();
 
     // Read current values from controls
     void ReadFromControls();

@@ -20,6 +20,7 @@
 #define IDI_HIDE_ALL            114
 #define IDI_GROUP               115
 #define IDI_FOLDER              116
+#define IDI_ATTACHMENT          117
 
 // Tray context menu
 #define IDR_TRAY_MENU           200
@@ -43,6 +44,7 @@
 #define ID_NOTE_COPY            215
 #define ID_NOTE_HIDE            216
 #define ID_NOTE_RENAME          217
+#define ID_NOTE_ATTACHMENTS     218
 
 // Note list menu bar
 #define IDR_NOTELIST_MENU       220
@@ -118,6 +120,14 @@
 #define IDC_CASCADE_RESET_SPIN  547
 #define IDC_DEFAULT_FOLDER      548
 #define IDC_SEARCH_EDIT         549
+
+// Tab 4: Initial text
+#define IDC_INITIAL_TEXT_EDIT   550
+#define IDC_INITIAL_TEXT_INSERT 551
+
+// Initial text insert menu (variable picker)
+#define ID_INITTEXT_BASE        560
+#define ID_INITTEXT_MAX         589
 
 // Folder management
 #define ID_NL_FOLDER_NEW        240

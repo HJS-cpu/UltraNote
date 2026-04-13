@@ -34,6 +34,7 @@ target_link_libraries(UltraNote PRIVATE
     comctl32
     comdlg32
     uxtheme
+    shlwapi
 )
 
 # MSVC specific settings

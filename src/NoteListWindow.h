@@ -62,6 +62,8 @@ private:
     static INT_PTR CALLBACK InputDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     void CreateSearchEdit();
+    void CreateStatusBar();
+    void UpdateStatusBar();
     static LRESULT CALLBACK SearchEditSubclassProc(
         HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
         UINT_PTR subId, DWORD_PTR refData);
@@ -71,6 +73,7 @@ private:
     HWND       m_hFolderList    = nullptr;
     HWND       m_hListView      = nullptr;
     HWND       m_hSearchEdit    = nullptr;
+    HWND       m_hStatusBar     = nullptr;
     HINSTANCE  m_hInst          = nullptr;
     HIMAGELIST m_hToolbarImages = nullptr;
     HICON      m_hFolderIcon    = nullptr;

@@ -2,7 +2,10 @@
 
 #include <windows.h>
 #include <commctrl.h>
+#include <shellapi.h>
 #include <cstdint>
+#include <vector>
+#include <string>
 #include "Note.h"
 
 class NoteWindow {
@@ -43,6 +46,18 @@ private:
     void PaintBackground(HDC hdc, const RECT& rc);
     void PaintBorder(HDC hdc, const RECT& rc);
     void PaintText(HDC hdc, const RECT& rc);
+    void PaintAttachmentBar(HDC hdc, const RECT& rc);
+
+    // Attachment bar
+    int  GetAttachmentBarHeight() const;
+    RECT GetAttachmentBarRect() const;
+    int  AttachmentHitTest(int x, int y) const;  // Returns attachment index or -1
+    void HandleDropFiles(HDROP hDrop);
+    void OpenAttachment(int index);
+    void RemoveAttachment(int index);
+    void ShowAttachmentContextMenu(int index, int screenX, int screenY);
+    void UpdateTooltip();
+    void DestroyAttachmentIcons();
 
     // Hit testing: returns HTCLIENT for body, or resize HTXXX codes for edges
     int HitTest(int x, int y) const;
@@ -68,6 +83,7 @@ private:
 
     HWND       m_hwnd          = nullptr;
     HWND       m_hEditCtrl     = nullptr;
+    HWND       m_hTooltip      = nullptr;
     NoteData*  m_data          = nullptr;
     HINSTANCE  m_hInst         = nullptr;
     HBRUSH     m_hEditBrush    = nullptr;
@@ -86,9 +102,15 @@ private:
     POINT      m_resizeStartCursor = {};
     RECT       m_resizeStartRect   = {};
 
+    // Attachment icon cache
+    std::vector<HICON> m_attachIcons;
+
     static constexpr int RESIZE_BORDER = 6;
     static constexpr int MIN_WIDTH     = 80;
     static constexpr int MIN_HEIGHT    = 40;
     static constexpr int TEXT_PADDING  = 6;
+    static constexpr int ATTACH_ROW_HEIGHT = 20;
+    static constexpr int ATTACH_ICON_SIZE  = 16;
+    static constexpr int ATTACH_ITEM_PAD   = 4;
     static constexpr UINT_PTR EDIT_SUBCLASS_ID = 1;
 };

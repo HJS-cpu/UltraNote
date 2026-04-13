@@ -5,6 +5,7 @@
 #include "Utils.h"
 #include "Resource.h"
 #include <windowsx.h>
+#include <shlwapi.h>
 #include <ctime>
 
 static const wchar_t* NOTE_WND_CLASS = L"UltraNoteWindow";
@@ -39,12 +40,39 @@ NoteWindow::NoteWindow(NoteData* data, HINSTANCE hInst)
         data->x, data->y, data->width, data->height,
         nullptr, nullptr, hInst, this
     );
+
+    // Accept drag & drop files
+    DragAcceptFiles(m_hwnd, TRUE);
+
+    // Create tooltip control for attachment paths
+    m_hTooltip = CreateWindowExW(
+        WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+        WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+        0, 0, 0, 0,
+        m_hwnd, nullptr, hInst, nullptr
+    );
+    if (m_hTooltip) {
+        TTTOOLINFOW ti = {};
+        ti.cbSize   = sizeof(ti);
+        ti.uFlags   = TTF_SUBCLASS;
+        ti.hwnd     = m_hwnd;
+        ti.uId      = 1;
+        ti.lpszText = const_cast<wchar_t*>(L"");
+        SetRectEmpty(&ti.rect);
+        SendMessageW(m_hTooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+        SendMessageW(m_hTooltip, TTM_SETMAXTIPWIDTH, 0, 500);
+    }
 }
 
 NoteWindow::~NoteWindow() {
+    DestroyAttachmentIcons();
     if (m_hEditBrush) {
         DeleteObject(m_hEditBrush);
         m_hEditBrush = nullptr;
+    }
+    if (m_hTooltip) {
+        DestroyWindow(m_hTooltip);
+        m_hTooltip = nullptr;
     }
     if (m_hwnd) {
         // Clear the stored pointer before destroying
@@ -89,10 +117,21 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_ERASEBKGND:
             return 1; // We handle background in WM_PAINT
 
+        case WM_DROPFILES: {
+            HandleDropFiles(reinterpret_cast<HDROP>(wParam));
+            return 0;
+        }
+
         case WM_LBUTTONDOWN: {
             int x = GET_X_LPARAM(lParam);
             int y = GET_Y_LPARAM(lParam);
             bool ctrlHeld = (wParam & MK_CONTROL) != 0;
+
+            // Check if click is in attachment bar (works even in edit mode)
+            if (m_data->showAttachments && !m_data->attachments.empty()) {
+                int attachIdx = AttachmentHitTest(x, y);
+                if (attachIdx >= 0) return 0; // Consume, dblclick will open
+            }
 
             if (m_inEditMode) break; // Let edit control handle it
 
@@ -127,20 +166,39 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 UpdateDrag(x, y);
             } else if (m_resizing) {
                 UpdateResize(x, y);
-            } else if (!m_inEditMode) {
-                // Update cursor based on hit zone
-                int hit = HitTest(x, y);
-                switch (hit) {
-                    case HTLEFT: case HTRIGHT:
-                        SetCursor(LoadCursorW(nullptr, IDC_SIZEWE)); break;
-                    case HTTOP: case HTBOTTOM:
-                        SetCursor(LoadCursorW(nullptr, IDC_SIZENS)); break;
-                    case HTTOPLEFT: case HTBOTTOMRIGHT:
-                        SetCursor(LoadCursorW(nullptr, IDC_SIZENWSE)); break;
-                    case HTTOPRIGHT: case HTBOTTOMLEFT:
-                        SetCursor(LoadCursorW(nullptr, IDC_SIZENESW)); break;
-                    default:
-                        SetCursor(LoadCursorW(nullptr, IDC_ARROW)); break;
+            } else {
+                // Attachment bar tooltip + hand cursor (works in edit mode too)
+                if (m_data->showAttachments && m_hTooltip) {
+                    int attachIdx = AttachmentHitTest(x, y);
+                    if (attachIdx >= 0 && attachIdx < static_cast<int>(m_data->attachments.size())) {
+                        TTTOOLINFOW ti = {};
+                        ti.cbSize   = sizeof(ti);
+                        ti.hwnd     = m_hwnd;
+                        ti.uId      = 1;
+                        ti.lpszText = const_cast<wchar_t*>(m_data->attachments[attachIdx].c_str());
+                        SendMessageW(m_hTooltip, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
+                        SendMessageW(m_hTooltip, TTM_ACTIVATE, TRUE, 0);
+                        SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                        return 0;
+                    }
+                    SendMessageW(m_hTooltip, TTM_ACTIVATE, FALSE, 0);
+                }
+
+                // Normal cursor handling (only outside edit mode)
+                if (!m_inEditMode) {
+                    int hit = HitTest(x, y);
+                    switch (hit) {
+                        case HTLEFT: case HTRIGHT:
+                            SetCursor(LoadCursorW(nullptr, IDC_SIZEWE)); break;
+                        case HTTOP: case HTBOTTOM:
+                            SetCursor(LoadCursorW(nullptr, IDC_SIZENS)); break;
+                        case HTTOPLEFT: case HTBOTTOMRIGHT:
+                            SetCursor(LoadCursorW(nullptr, IDC_SIZENWSE)); break;
+                        case HTTOPRIGHT: case HTBOTTOMLEFT:
+                            SetCursor(LoadCursorW(nullptr, IDC_SIZENESW)); break;
+                        default:
+                            SetCursor(LoadCursorW(nullptr, IDC_ARROW)); break;
+                    }
                 }
             }
             return 0;
@@ -155,6 +213,13 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             } else if (m_resizing) {
                 UpdateResize(x, y);
                 EndResize();
+            } else if (m_data->showAttachments) {
+                // Single click on attachment opens file
+                int attachIdx = AttachmentHitTest(x, y);
+                if (attachIdx >= 0) {
+                    OpenAttachment(attachIdx);
+                    return 0;
+                }
             }
             return 0;
         }
@@ -168,8 +233,20 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         case WM_RBUTTONUP: {
-            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            int x = GET_X_LPARAM(lParam);
+            int y = GET_Y_LPARAM(lParam);
+            POINT pt = { x, y };
             ClientToScreen(m_hwnd, &pt);
+
+            // Check if right-click is on an attachment
+            if (m_data->showAttachments) {
+                int attachIdx = AttachmentHitTest(x, y);
+                if (attachIdx >= 0) {
+                    ShowAttachmentContextMenu(attachIdx, pt.x, pt.y);
+                    return 0;
+                }
+            }
+
             Application::Get().ClearSelection();
             ShowContextMenu(pt.x, pt.y);
             return 0;
@@ -233,12 +310,15 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             if (m_hEditCtrl) {
                 RECT rc;
                 GetClientRect(m_hwnd, &rc);
+                int abHeight = GetAttachmentBarHeight();
                 MoveWindow(m_hEditCtrl,
                            TEXT_PADDING, TEXT_PADDING,
                            rc.right - 2 * TEXT_PADDING,
-                           rc.bottom - 2 * TEXT_PADDING,
+                           rc.bottom - 2 * TEXT_PADDING - abHeight,
                            TRUE);
             }
+            // Repaint entire window (attachment bar moves with bottom edge)
+            InvalidateRect(m_hwnd, nullptr, TRUE);
             return 0;
         }
 
@@ -268,6 +348,7 @@ void NoteWindow::Paint(HDC hdc) {
         PaintText(memDC, rc);
     }
 
+    PaintAttachmentBar(memDC, rc);
     PaintBorder(memDC, rc);
 
     BitBlt(hdc, 0, 0, rc.right, rc.bottom, memDC, 0, 0, SRCCOPY);
@@ -327,11 +408,12 @@ void NoteWindow::PaintText(HDC hdc, const RECT& rc) {
     SetTextColor(hdc, m_data->layout.textColor);
     SetBkMode(hdc, TRANSPARENT);
 
+    int abHeight = GetAttachmentBarHeight();
     RECT textRc = {
         rc.left + TEXT_PADDING,
         rc.top + TEXT_PADDING,
         rc.right - TEXT_PADDING,
-        rc.bottom - TEXT_PADDING
+        rc.bottom - TEXT_PADDING - abHeight
     };
 
     DrawTextW(hdc, m_data->text.c_str(), static_cast<int>(m_data->text.size()),
@@ -483,29 +565,38 @@ void NoteWindow::EnterEditMode() {
     RECT rc;
     GetClientRect(m_hwnd, &rc);
 
+    int abHeight = GetAttachmentBarHeight();
     m_hEditCtrl = CreateWindowExW(
         0, L"EDIT", m_data->text.c_str(),
         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_WANTRETURN |
         ES_AUTOVSCROLL,
         TEXT_PADDING, TEXT_PADDING,
         rc.right - 2 * TEXT_PADDING,
-        rc.bottom - 2 * TEXT_PADDING,
+        rc.bottom - 2 * TEXT_PADDING - abHeight,
         m_hwnd, nullptr, m_hInst, nullptr
     );
 
-    // Set font
+    // Set font and remove internal edit margins so text doesn't shift
     HFONT hFont = CreateFontFromParams(m_data->layout.fontFace,
                                         m_data->layout.fontSizePts,
                                         m_data->layout.fontBold,
                                         m_data->layout.fontItalic);
     SendMessageW(m_hEditCtrl, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+    SendMessageW(m_hEditCtrl, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(0, 0));
 
     // Subclass for CTRL+ENTER and ESC
     SetWindowSubclass(m_hEditCtrl, EditSubclassProc, EDIT_SUBCLASS_ID,
                       reinterpret_cast<DWORD_PTR>(this));
 
-    // Select all text
-    SendMessageW(m_hEditCtrl, EM_SETSEL, 0, -1);
+    // Position cursor at %%p marker or select all text
+    if (m_data->cursorPos >= 0) {
+        SendMessageW(m_hEditCtrl, EM_SETSEL,
+                     static_cast<WPARAM>(m_data->cursorPos),
+                     static_cast<LPARAM>(m_data->cursorPos));
+        m_data->cursorPos = -1;  // One-time positioning
+    } else {
+        SendMessageW(m_hEditCtrl, EM_SETSEL, 0, -1);
+    }
     SetFocus(m_hEditCtrl);
 
     InvalidateRect(m_hwnd, nullptr, TRUE);
@@ -651,6 +742,8 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
     addItemRes(ID_NOTE_ALWAYSONTOP, Ls(L"note.always_on_top").c_str(), IDI_PIN,
                m_data->layout.alwaysOnTop ? MF_CHECKED : 0);
+    addItemRes(ID_NOTE_ATTACHMENTS, Ls(L"note.attachments").c_str(), IDI_ATTACHMENT,
+               m_data->showAttachments ? MF_CHECKED : 0);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
     addItemRes(ID_NOTE_NEWNOTE, Ls(L"note.new_note").c_str(), IDI_NEW);
 
@@ -771,6 +864,22 @@ void NoteWindow::HandleMenuCommand(int cmd) {
             NotifyChanged();
             break;
 
+        case ID_NOTE_ATTACHMENTS:
+            m_data->showAttachments = !m_data->showAttachments;
+            DestroyAttachmentIcons();
+            InvalidateRect(m_hwnd, nullptr, TRUE);
+            // Re-layout edit control if active
+            if (m_hEditCtrl) {
+                RECT rc;
+                GetClientRect(m_hwnd, &rc);
+                int abHeight = GetAttachmentBarHeight();
+                MoveWindow(m_hEditCtrl, TEXT_PADDING, TEXT_PADDING,
+                           rc.right - 2 * TEXT_PADDING,
+                           rc.bottom - 2 * TEXT_PADDING - abHeight, TRUE);
+            }
+            NotifyChanged();
+            break;
+
         case ID_NOTE_NEWNOTE:
             Application::Get().CreateNewNote();
             break;
@@ -810,6 +919,211 @@ void NoteWindow::HandleMenuCommand(int cmd) {
             }
             break;
     }
+}
+
+// ============================================================================
+// Attachment bar
+// ============================================================================
+
+int NoteWindow::GetAttachmentBarHeight() const {
+    if (!m_data->showAttachments || m_data->attachments.empty())
+        return 0;
+    return static_cast<int>(m_data->attachments.size()) * ATTACH_ROW_HEIGHT + 1;  // +1 for separator
+}
+
+RECT NoteWindow::GetAttachmentBarRect() const {
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    int h = GetAttachmentBarHeight();
+    // Leave RESIZE_BORDER free at bottom and right for resize grip
+    RECT barRc = {
+        RESIZE_BORDER,
+        rc.bottom - h - RESIZE_BORDER,
+        rc.right - RESIZE_BORDER,
+        rc.bottom - RESIZE_BORDER
+    };
+    return barRc;
+}
+
+int NoteWindow::AttachmentHitTest(int x, int y) const {
+    if (!m_data->showAttachments || m_data->attachments.empty())
+        return -1;
+
+    RECT barRc = GetAttachmentBarRect();
+    if (x < barRc.left || x >= barRc.right || y < barRc.top || y >= barRc.bottom)
+        return -1;
+
+    // Each attachment is one row; find which row was hit
+    int rowY = barRc.top + 1;  // skip separator line
+    for (int i = 0; i < static_cast<int>(m_data->attachments.size()); ++i) {
+        if (y >= rowY && y < rowY + ATTACH_ROW_HEIGHT)
+            return i;
+        rowY += ATTACH_ROW_HEIGHT;
+    }
+    return -1;
+}
+
+void NoteWindow::PaintAttachmentBar(HDC hdc, const RECT& /*rc*/) {
+    if (!m_data->showAttachments || m_data->attachments.empty())
+        return;
+
+    RECT barRc = GetAttachmentBarRect();
+
+    // Draw separator line at top of attachment area
+    HPEN sepPen = CreatePen(PS_SOLID, 1, m_data->layout.borderColor);
+    HGDIOBJ oldPen = SelectObject(hdc, sepPen);
+    MoveToEx(hdc, barRc.left, barRc.top, nullptr);
+    LineTo(hdc, barRc.right, barRc.top);
+    SelectObject(hdc, oldPen);
+    DeleteObject(sepPen);
+
+    // Ensure icon cache matches attachments
+    if (m_attachIcons.size() != m_data->attachments.size()) {
+        DestroyAttachmentIcons();
+        for (auto& path : m_data->attachments) {
+            SHFILEINFOW sfi = {};
+            HICON hIcon = nullptr;
+            if (SHGetFileInfoW(path.c_str(), 0, &sfi, sizeof(sfi),
+                               SHGFI_ICON | SHGFI_SMALLICON)) {
+                hIcon = sfi.hIcon;
+            } else {
+                sfi = {};
+                if (SHGetFileInfoW(path.c_str(), FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi),
+                                   SHGFI_ICON | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES)) {
+                    hIcon = sfi.hIcon;
+                }
+            }
+            m_attachIcons.push_back(hIcon);
+        }
+    }
+
+    HFONT hFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HGDIOBJ oldFontObj = SelectObject(hdc, hFont);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, m_data->layout.textColor);
+
+    int rowY = barRc.top + 1;  // below separator line
+    for (size_t i = 0; i < m_data->attachments.size(); ++i) {
+        int iconX = barRc.left + ATTACH_ITEM_PAD;
+        int iconY = rowY + (ATTACH_ROW_HEIGHT - ATTACH_ICON_SIZE) / 2;
+
+        // Draw icon
+        if (i < m_attachIcons.size() && m_attachIcons[i]) {
+            DrawIconEx(hdc, iconX, iconY, m_attachIcons[i],
+                       ATTACH_ICON_SIZE, ATTACH_ICON_SIZE, 0, nullptr, DI_NORMAL);
+        }
+
+        // Draw filename (ellipsis if too wide)
+        int textX = iconX + ATTACH_ICON_SIZE + ATTACH_ITEM_PAD;
+        const wchar_t* filename = PathFindFileNameW(m_data->attachments[i].c_str());
+        RECT textRc = { textX, rowY, barRc.right - ATTACH_ITEM_PAD, rowY + ATTACH_ROW_HEIGHT };
+        DrawTextW(hdc, filename, static_cast<int>(wcslen(filename)),
+                  &textRc, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+
+        rowY += ATTACH_ROW_HEIGHT;
+    }
+
+    SelectObject(hdc, oldFontObj);
+}
+
+void NoteWindow::HandleDropFiles(HDROP hDrop) {
+    UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+    for (UINT i = 0; i < count; ++i) {
+        if (static_cast<int>(m_data->attachments.size()) >= MAX_ATTACHMENTS) {
+            MessageBoxW(m_hwnd, Ls(L"note.attach_full").c_str(),
+                        L"UltraNote", MB_OK | MB_ICONINFORMATION);
+            break;
+        }
+        UINT len = DragQueryFileW(hDrop, i, nullptr, 0);
+        std::wstring path(static_cast<size_t>(len), L'\0');
+        DragQueryFileW(hDrop, i, &path[0], len + 1);
+        m_data->attachments.push_back(std::move(path));
+    }
+    DragFinish(hDrop);
+
+    // Auto-show attachment bar if it was hidden
+    if (!m_data->attachments.empty() && !m_data->showAttachments) {
+        m_data->showAttachments = true;
+    }
+
+    DestroyAttachmentIcons();
+    InvalidateRect(m_hwnd, nullptr, TRUE);
+
+    // Re-layout edit control if active
+    if (m_hEditCtrl) {
+        RECT rc;
+        GetClientRect(m_hwnd, &rc);
+        int abHeight = GetAttachmentBarHeight();
+        MoveWindow(m_hEditCtrl, TEXT_PADDING, TEXT_PADDING,
+                   rc.right - 2 * TEXT_PADDING,
+                   rc.bottom - 2 * TEXT_PADDING - abHeight, TRUE);
+    }
+
+    NotifyChanged();
+}
+
+void NoteWindow::OpenAttachment(int index) {
+    if (index < 0 || index >= static_cast<int>(m_data->attachments.size()))
+        return;
+    ShellExecuteW(m_hwnd, L"open", m_data->attachments[index].c_str(),
+                  nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void NoteWindow::RemoveAttachment(int index) {
+    if (index < 0 || index >= static_cast<int>(m_data->attachments.size()))
+        return;
+    m_data->attachments.erase(m_data->attachments.begin() + index);
+    DestroyAttachmentIcons();
+    InvalidateRect(m_hwnd, nullptr, TRUE);
+
+    // Re-layout edit control if active
+    if (m_hEditCtrl) {
+        RECT rc;
+        GetClientRect(m_hwnd, &rc);
+        int abHeight = GetAttachmentBarHeight();
+        MoveWindow(m_hEditCtrl, TEXT_PADDING, TEXT_PADDING,
+                   rc.right - 2 * TEXT_PADDING,
+                   rc.bottom - 2 * TEXT_PADDING - abHeight, TRUE);
+    }
+
+    NotifyChanged();
+}
+
+void NoteWindow::ShowAttachmentContextMenu(int index, int screenX, int screenY) {
+    HMENU hPopup = CreatePopupMenu();
+    if (!hPopup) return;
+
+    auto& app = Application::Get();
+
+    // Show full path as disabled header
+    AppendMenuW(hPopup, MF_STRING | MF_GRAYED, 0, m_data->attachments[index].c_str());
+    AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
+
+    // Remove entry with delete icon
+    MENUITEMINFOW mii = {};
+    mii.cbSize     = sizeof(mii);
+    mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP;
+    mii.wID        = 1;
+    std::wstring removeText = Ls(L"note.attach_remove");
+    mii.dwTypeData = const_cast<wchar_t*>(removeText.c_str());
+    mii.hbmpItem   = app.GetResourceBitmap(IDI_DELETE);
+    InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
+
+    SetForegroundWindow(m_hwnd);
+    int cmd = TrackPopupMenu(hPopup, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+                             screenX, screenY, 0, m_hwnd, nullptr);
+    DestroyMenu(hPopup);
+
+    if (cmd == 1) {
+        RemoveAttachment(index);
+    }
+}
+
+void NoteWindow::DestroyAttachmentIcons() {
+    for (HICON icon : m_attachIcons) {
+        if (icon) DestroyIcon(icon);
+    }
+    m_attachIcons.clear();
 }
 
 // ============================================================================

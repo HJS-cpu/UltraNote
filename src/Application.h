@@ -24,6 +24,7 @@ public:
     NoteWindow* CreateNewNote();
     NoteWindow* CreateNoteFromClipboard();
     void        RequestDeleteNote(uint64_t id);
+    void        DeleteNote(uint64_t id);       // Delete without confirmation
     void        DeleteSelectedNotes();
     void        MarkDirty();
     void        SaveAll();

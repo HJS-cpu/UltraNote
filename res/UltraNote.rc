@@ -18,7 +18,8 @@ IDI_EXIT     ICON "exit.ico"
 IDI_DELETE   ICON "delete.ico"
 IDI_HIDE_ALL ICON "hide_all.ico"
 IDI_GROUP    ICON "group.ico"
-IDI_FOLDER   ICON "folder.ico"
+IDI_FOLDER     ICON "folder.ico"
+IDI_ATTACHMENT ICON "attachment.ico"
 
 // Tray right-click context menu
 IDR_TRAY_MENU MENU

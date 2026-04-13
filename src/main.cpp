@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <ole2.h>
 #include <commctrl.h>
 #include "Application.h"
 
@@ -8,6 +9,9 @@ int WINAPI wWinMain(
     _In_     LPWSTR    /*lpCmdLine*/,
     _In_     int       /*nCmdShow*/)
 {
+    // Initialize COM/OLE (needed for SHGetFileInfoW on .lnk files, drag & drop)
+    OleInitialize(nullptr);
+
     // Enable visual styles (ComCtl v6)
     INITCOMMONCONTROLSEX icc = {};
     icc.dwSize = sizeof(icc);
@@ -18,5 +22,7 @@ int WINAPI wWinMain(
     if (!app.Initialize(hInstance))
         return 1;
 
-    return app.Run();
+    int result = app.Run();
+    OleUninitialize();
+    return result;
 }

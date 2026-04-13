@@ -490,6 +490,13 @@ NoteWindow* Application::CreateNewNote() {
     // Apply default folder from settings
     note->folder = settings.defaultFolder;
 
+    // Apply initial text with variable expansion
+    if (!settings.initialText.empty()) {
+        int cursorPos = -1;
+        note->text = ExpandInitialText(settings.initialText, cursorPos);
+        note->cursorPos = cursorPos;
+    }
+
     // Cascade position for next note
     m_cascadeX += settings.cascadeStep;
     m_cascadeY += settings.cascadeStep;
@@ -544,8 +551,6 @@ void Application::RequestDeleteNote(uint64_t id) {
 
     auto settings = SettingsDialog::LoadFromStorage();
     if (settings.confirmDelete) {
-        // Use note's HWND as owner to avoid application-modal behavior
-        // (nullptr owner disables ALL top-level windows, hiding tool windows)
         HWND ownerWnd = nullptr;
         auto wit = m_noteWindows.find(id);
         if (wit != m_noteWindows.end())
@@ -555,6 +560,10 @@ void Application::RequestDeleteNote(uint64_t id) {
         if (result != IDYES) return;
     }
 
+    DeleteNote(id);
+}
+
+void Application::DeleteNote(uint64_t id) {
     // Destroy window
     auto it = m_noteWindows.find(id);
     if (it != m_noteWindows.end()) {
@@ -597,7 +606,6 @@ void Application::DeleteSelectedNotes() {
             msg = FormatString(Ls(L"confirm.delete_multi").c_str(), static_cast<int>(selected.size()));
         }
 
-        // Use first selected note's HWND as owner to avoid application-modal behavior
         HWND ownerWnd = nullptr;
         auto wit = m_noteWindows.find(selected.front());
         if (wit != m_noteWindows.end())
@@ -608,30 +616,7 @@ void Application::DeleteSelectedNotes() {
     }
 
     for (uint64_t id : selected) {
-        auto it = m_noteWindows.find(id);
-        if (it != m_noteWindows.end()) {
-            delete it->second;
-            m_noteWindows.erase(it);
-        }
-        m_notes.erase(std::remove_if(m_notes.begin(), m_notes.end(),
-            [id](const std::unique_ptr<NoteData>& n) { return n->id == id; }), m_notes.end());
-    }
-
-    m_dirty = true;
-    SaveAll();
-    RefreshNoteList();
-
-    // Re-show remaining visible notes (destroying a WS_POPUP|WS_EX_TOOLWINDOW
-    // window can cause sibling tool windows to lose visibility)
-    for (auto& [nid, wnd] : m_noteWindows) {
-        if (!wnd->GetData()->isHidden) {
-            SetWindowPos(wnd->GetHwnd(), HWND_TOPMOST, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-            if (!wnd->GetData()->layout.alwaysOnTop) {
-                SetWindowPos(wnd->GetHwnd(), HWND_NOTOPMOST, 0, 0, 0, 0,
-                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            }
-        }
+        DeleteNote(id);
     }
 }
 

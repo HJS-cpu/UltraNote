@@ -161,6 +161,7 @@ bool NoteListWindow::Create() {
 
     CreateToolbar();
     CreateSearchEdit();
+    CreateStatusBar();
     CreateFolderList();
     CreateListView();
     LoadSettings();
@@ -911,6 +912,29 @@ void NoteListWindow::FocusSearchField() {
 }
 
 // ============================================================================
+// Status bar
+// ============================================================================
+
+void NoteListWindow::CreateStatusBar() {
+    m_hStatusBar = CreateWindowExW(
+        0, STATUSCLASSNAMEW, nullptr,
+        WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
+        0, 0, 0, 0,
+        m_hwnd, nullptr, m_hInst, nullptr
+    );
+}
+
+void NoteListWindow::UpdateStatusBar() {
+    if (!m_hStatusBar) return;
+    int total = static_cast<int>(Application::Get().GetAllNotes().size());
+    int shown = ListView_GetItemCount(m_hListView);
+    std::wstring text = (shown == total)
+        ? FormatString(L"%d %s", total, Ls(L"notelist.status_notes").c_str())
+        : FormatString(L"%d / %d %s", shown, total, Ls(L"notelist.status_notes").c_str());
+    SendMessageW(m_hStatusBar, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(text.c_str()));
+}
+
+// ============================================================================
 // Folder list (left panel)
 // ============================================================================
 
@@ -1117,6 +1141,8 @@ void NoteListWindow::PopulateList() {
 
         ++insertIdx;
     }
+
+    UpdateStatusBar();
 }
 
 void NoteListWindow::Refresh() {
@@ -1150,20 +1176,30 @@ void NoteListWindow::ResizeControls() {
         }
     }
 
+    int sbHeight = 0;
+    if (m_hStatusBar) {
+        SendMessageW(m_hStatusBar, WM_SIZE, 0, 0);
+        RECT sbRect;
+        GetWindowRect(m_hStatusBar, &sbRect);
+        sbHeight = sbRect.bottom - sbRect.top;
+    }
+
+    int contentHeight = rc.bottom - tbHeight - sbHeight;
+
     if (m_hFolderList) {
         MoveWindow(m_hFolderList, 0, tbHeight, m_folderListWidth,
-                   rc.bottom - tbHeight, TRUE);
+                   contentHeight, TRUE);
     }
 
     int lvLeft = m_folderListWidth + SPLITTER_WIDTH;
     if (m_hListView) {
         MoveWindow(m_hListView, lvLeft, tbHeight,
-                   rc.right - lvLeft, rc.bottom - tbHeight, TRUE);
+                   rc.right - lvLeft, contentHeight, TRUE);
     }
 
     // Invalidate splitter area
     RECT splitterRc = { m_folderListWidth, tbHeight,
-                        m_folderListWidth + SPLITTER_WIDTH, rc.bottom };
+                        m_folderListWidth + SPLITTER_WIDTH, rc.bottom - sbHeight };
     InvalidateRect(m_hwnd, &splitterRc, TRUE);
 }
 
@@ -1373,7 +1409,7 @@ void NoteListWindow::DeleteSelectedNotes() {
     }
 
     for (uint64_t id : ids) {
-        Application::Get().RequestDeleteNote(id);
+        Application::Get().DeleteNote(id);
     }
 }
 

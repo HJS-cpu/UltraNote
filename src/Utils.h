@@ -5,6 +5,7 @@
 #include <shellapi.h>
 #include <string>
 #include <cstdarg>
+#include <ctime>
 
 // RAII wrapper for GDI objects (HBRUSH, HFONT, HPEN, etc.)
 class GdiObject {
@@ -169,6 +170,62 @@ inline bool MatchesShortcut(WORD shortcut, WPARAM vk) {
     bool hasShift  = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     bool hasAlt    = (GetKeyState(VK_MENU) & 0x8000) != 0;
     return (needCtrl == hasCtrl) && (needShift == hasShift) && (needAlt == hasAlt);
+}
+
+// Expand strftime variables in initial text template.
+// %%p is the cursor position marker (removed from output, position stored in outCursorPos).
+// %% is a literal percent sign.
+inline std::wstring ExpandInitialText(const std::wstring& tmpl, int& outCursorPos) {
+    outCursorPos = -1;
+    if (tmpl.empty()) return {};
+
+    // Find and remove %%p cursor marker (first occurrence only)
+    std::wstring work = tmpl;
+    size_t cursorMarker = work.find(L"%%p");
+    if (cursorMarker != std::wstring::npos) {
+        work.erase(cursorMarker, 3);
+    }
+
+    std::time_t now = std::time(nullptr);
+    struct tm localTime;
+    localtime_s(&localTime, &now);
+
+    // Expand a piece of text: split on %%, expand segments via wcsftime, rejoin with '%'
+    auto expandPiece = [&](const std::wstring& piece) -> std::wstring {
+        std::wstring result;
+        size_t pos = 0;
+        while (pos < piece.size()) {
+            auto pp = piece.find(L"%%", pos);
+            if (pp == std::wstring::npos) {
+                std::wstring seg = piece.substr(pos);
+                if (!seg.empty()) {
+                    wchar_t buf[512];
+                    size_t len = wcsftime(buf, 512, seg.c_str(), &localTime);
+                    result += (len > 0) ? std::wstring(buf, len) : seg;
+                }
+                break;
+            }
+            if (pp > pos) {
+                std::wstring seg = piece.substr(pos, pp - pos);
+                wchar_t buf[512];
+                size_t len = wcsftime(buf, 512, seg.c_str(), &localTime);
+                result += (len > 0) ? std::wstring(buf, len) : seg;
+            }
+            result += L'%';
+            pos = pp + 2;
+        }
+        return result;
+    };
+
+    if (cursorMarker != std::wstring::npos) {
+        // Split at cursor position, expand each half independently
+        std::wstring expandedBefore = expandPiece(work.substr(0, cursorMarker));
+        std::wstring expandedAfter  = expandPiece(work.substr(cursorMarker));
+        outCursorPos = static_cast<int>(expandedBefore.size());
+        return expandedBefore + expandedAfter;
+    }
+
+    return expandPiece(work);
 }
 
 // Get the directory containing the running EXE

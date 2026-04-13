@@ -70,7 +70,14 @@ std::wstring Storage::SerializeNote(const NoteData& note) {
     s += L"        \"alwaysOnTop\": " + std::wstring(note.layout.alwaysOnTop ? L"true" : L"false") + L"\n";
     s += L"      },\n";
     s += L"      \"createdAt\": " + std::to_wstring(note.createdAt) + L",\n";
-    s += L"      \"modifiedAt\": " + std::to_wstring(note.modifiedAt) + L"\n";
+    s += L"      \"modifiedAt\": " + std::to_wstring(note.modifiedAt) + L",\n";
+    s += L"      \"showAttachments\": " + std::wstring(note.showAttachments ? L"true" : L"false") + L",\n";
+    s += L"      \"attachments\": [";
+    for (size_t i = 0; i < note.attachments.size(); ++i) {
+        if (i > 0) s += L", ";
+        s += L"\"" + EscapeJsonString(note.attachments[i]) + L"\"";
+    }
+    s += L"]\n";
     s += L"    }";
     return s;
 }
@@ -374,6 +381,10 @@ bool Storage::ParseNoteObject(const wchar_t*& p, NoteData& note) {
             if (!ParseInt(p, note.createdAt)) return false;
         } else if (key == L"modifiedAt") {
             if (!ParseInt(p, note.modifiedAt)) return false;
+        } else if (key == L"showAttachments") {
+            if (!ParseBool(p, note.showAttachments)) return false;
+        } else if (key == L"attachments") {
+            if (!ParseStringArray(p, note.attachments)) return false;
         } else {
             if (!SkipValue(p)) return false;
         }

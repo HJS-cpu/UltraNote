@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <string>
+#include <vector>
 #include <cstdint>
 
 // Note layout: all visual properties
@@ -15,6 +16,8 @@ struct NoteLayout {
     bool     fontItalic      = false;
     bool     alwaysOnTop     = false;
 };
+
+static constexpr int MAX_ATTACHMENTS = 5;
 
 // Complete note data - everything needed to save/restore a note
 struct NoteData {
@@ -31,4 +34,7 @@ struct NoteData {
     NoteLayout   layout;
     int64_t      createdAt   = 0;   // Unix timestamp
     int64_t      modifiedAt  = 0;   // Unix timestamp
+    std::vector<std::wstring> attachments;   // File paths (links, max MAX_ATTACHMENTS)
+    bool         showAttachments = false;     // Attachment bar visible
+    int          cursorPos      = -1;        // Transient: cursor position from %%p marker (-1 = not set)
 };

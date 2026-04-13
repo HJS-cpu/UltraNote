@@ -93,6 +93,7 @@ SettingsData SettingsDialog::LoadFromStorage() {
     d.cascadeStep    = getInt(L"newnote.cascade", 20);
     d.cascadeReset   = getInt(L"newnote.cascade_reset", 500);
     d.defaultFolder  = getStr(L"newnote.folder", L"");
+    d.initialText    = getStr(L"newnote.initialText", L"");
 
     for (int i = 0; i < SC_COUNT; ++i) {
         d.shortcuts[i] = static_cast<WORD>(getInt(s_shortcutDefs[i].settingsKey,
@@ -126,6 +127,7 @@ void SettingsDialog::SaveToStorage(const SettingsData& data) {
     intS[L"newnote.cascade"]       = data.cascadeStep;
     intS[L"newnote.cascade_reset"] = data.cascadeReset;
     strS[L"newnote.folder"]        = data.defaultFolder;
+    strS[L"newnote.initialText"]  = data.initialText;
 
     for (int i = 0; i < SC_COUNT; ++i) {
         intS[s_shortcutDefs[i].settingsKey] = data.shortcuts[i];
@@ -229,6 +231,33 @@ INT_PTR CALLBACK SettingsDialog::DlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
                 case IDC_SHORTCUT_DEFAULT:
                     self->OnShortcutDefault();
                     return TRUE;
+
+                case IDC_INITIAL_TEXT_INSERT:
+                    self->ShowInsertVariableMenu();
+                    return TRUE;
+            }
+
+            // Handle insert variable menu selection
+            if (LOWORD(wParam) >= ID_INITTEXT_BASE && LOWORD(wParam) <= ID_INITTEXT_MAX) {
+                // Must match order in ShowInsertVariableMenu()
+                static const wchar_t* s_varCodes[] = {
+                    L"%c", L"%x", L"%X",
+                    L"%#c", L"%#x",
+                    L"%d", L"%m", L"%y", L"%Y",
+                    L"%H", L"%I", L"%M", L"%S", L"%p",
+                    L"%a", L"%A", L"%b", L"%B",
+                    L"%%", L"%%p"
+                };
+                int idx = LOWORD(wParam) - ID_INITTEXT_BASE;
+                if (idx >= 0 && idx < _countof(s_varCodes)) {
+                    HWND hEdit = GetDlgItem(hwnd, IDC_INITIAL_TEXT_EDIT);
+                    if (hEdit) {
+                        SetFocus(hEdit);
+                        SendMessageW(hEdit, EM_REPLACESEL, TRUE,
+                            reinterpret_cast<LPARAM>(s_varCodes[idx]));
+                    }
+                }
+                return TRUE;
             }
             break;
 
@@ -895,6 +924,30 @@ void SettingsDialog::CreateMiscTab(HWND hwnd) {
     m_tabControls[3].push_back(hCombo);
 
     PopulateFolderCombo();
+
+    y += rowH;
+
+    // Initial text label
+    HWND hInitLabel = CreateWindowExW(0, L"STATIC", Ls(L"settings.initial_text").c_str(),
+        WS_CHILD | SS_LEFT, x, y + 3, labelW, 18, hwnd, nullptr, nullptr, nullptr);
+    m_tabControls[3].push_back(hInitLabel);
+
+    // Insert button (right-aligned next to label)
+    HWND hInsertBtn = CreateWindowExW(0, L"BUTTON", Ls(L"settings.insert_var").c_str(),
+        WS_CHILD | BS_PUSHBUTTON,
+        x + labelW, y, 100, 22,
+        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_INITIAL_TEXT_INSERT)),
+        nullptr, nullptr);
+    m_tabControls[3].push_back(hInsertBtn);
+    y += rowH;
+
+    // Multiline edit for initial text
+    HWND hInitEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", m_data.initialText.c_str(),
+        WS_CHILD | ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL | WS_VSCROLL,
+        x, y, labelW + 100, 80,
+        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_INITIAL_TEXT_EDIT)),
+        nullptr, nullptr);
+    m_tabControls[3].push_back(hInitEdit);
 }
 
 // ============================================================================
@@ -1118,6 +1171,94 @@ void SettingsDialog::ReadFromControls() {
                 m_data.defaultFolder = folders[idx - 1];
         }
     }
+
+    // Initial text
+    HWND hInitText = GetDlgItem(m_hwnd, IDC_INITIAL_TEXT_EDIT);
+    if (hInitText) {
+        int len = GetWindowTextLengthW(hInitText);
+        if (len > 0) {
+            std::wstring buf(len + 1, L'\0');
+            GetWindowTextW(hInitText, &buf[0], len + 1);
+            buf.resize(len);
+            m_data.initialText = buf;
+        } else {
+            m_data.initialText.clear();
+        }
+    }
+}
+
+// ============================================================================
+// Insert variable popup menu
+// ============================================================================
+
+void SettingsDialog::ShowInsertVariableMenu() {
+    struct VarEntry {
+        const wchar_t* code;       // Display code (left prefix)
+        const wchar_t* format;     // strftime format for preview (nullptr = literal)
+        const wchar_t* literal;    // Literal preview text (when format is nullptr)
+        const wchar_t* locKey;     // Localization key for description
+        bool sepBefore;            // Separator before this item
+    };
+
+    static const VarEntry s_vars[] = {
+        { L"%c",   L"%c",   nullptr, L"settings.var_datetime_short", false },
+        { L"%x",   L"%x",   nullptr, L"settings.var_date_short",     false },
+        { L"%X",   L"%X",   nullptr, L"settings.var_time",           false },
+        { L"%#c",  L"%#c",  nullptr, L"settings.var_datetime_long",  true  },
+        { L"%#x",  L"%#x",  nullptr, L"settings.var_date_long",      false },
+        { L"%d",   L"%d",   nullptr, L"settings.var_day",            true  },
+        { L"%m",   L"%m",   nullptr, L"settings.var_month",          false },
+        { L"%y",   L"%y",   nullptr, L"settings.var_year_short",     false },
+        { L"%Y",   L"%Y",   nullptr, L"settings.var_year_long",      false },
+        { L"%H",   L"%H",   nullptr, L"settings.var_hour24",         true  },
+        { L"%I",   L"%I",   nullptr, L"settings.var_hour12",         false },
+        { L"%M",   L"%M",   nullptr, L"settings.var_minute",         false },
+        { L"%S",   L"%S",   nullptr, L"settings.var_second",         false },
+        { L"%p",   L"%p",   nullptr, L"settings.var_ampm",           false },
+        { L"%a",   L"%a",   nullptr, L"settings.var_weekday_short",  true  },
+        { L"%A",   L"%A",   nullptr, L"settings.var_weekday_long",   false },
+        { L"%b",   L"%b",   nullptr, L"settings.var_month_short",    false },
+        { L"%B",   L"%B",   nullptr, L"settings.var_month_long",     false },
+        { L"%%",   nullptr, L"%",    L"settings.var_percent",        true  },
+        { L"%%p",  nullptr, L"%%p",  L"settings.var_cursor",         false },
+    };
+
+    // Get current time for live preview
+    std::time_t now = std::time(nullptr);
+    struct tm localTime;
+    localtime_s(&localTime, &now);
+
+    HMENU hMenu = CreatePopupMenu();
+    for (int i = 0; i < _countof(s_vars); ++i) {
+        if (s_vars[i].sepBefore)
+            AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+
+        // Build preview string
+        std::wstring preview;
+        if (s_vars[i].format) {
+            wchar_t buf[128];
+            size_t len = wcsftime(buf, 128, s_vars[i].format, &localTime);
+            if (len > 0) preview.assign(buf, len);
+        } else {
+            preview = s_vars[i].literal;
+        }
+
+        // Build menu text: "%c  Datum/Zeit kurz:\tPreview"
+        std::wstring text = s_vars[i].code;
+        text += L"  ";
+        text += Ls(s_vars[i].locKey);
+        text += L"\t";
+        text += preview;
+
+        AppendMenuW(hMenu, MF_STRING, ID_INITTEXT_BASE + i, text.c_str());
+    }
+
+    // Position menu below the insert button
+    HWND hBtn = GetDlgItem(m_hwnd, IDC_INITIAL_TEXT_INSERT);
+    RECT rc;
+    GetWindowRect(hBtn, &rc);
+    TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_TOPALIGN, rc.left, rc.bottom, 0, m_hwnd, nullptr);
+    DestroyMenu(hMenu);
 }
 
 // ============================================================================
