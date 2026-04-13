@@ -29,7 +29,9 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: UltraNote-Portable
-          path: UltraNote-Portable.zip
+          path: |
+            build/Release/UltraNote.exe
+            build/Release/lang
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
