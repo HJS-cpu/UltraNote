@@ -4,6 +4,7 @@
 #include <commctrl.h>
 #include <shellapi.h>
 #include <string>
+#include <vector>
 #include <cstdarg>
 #include <ctime>
 
@@ -226,6 +227,79 @@ inline std::wstring ExpandInitialText(const std::wstring& tmpl, int& outCursorPo
     }
 
     return expandPiece(work);
+}
+
+// URL span found in text (character offsets)
+struct UrlSpan {
+    int start;           // Start index in text
+    int end;             // One past the last character of the URL display range
+    std::wstring url;    // URL to open (with http:// prepended for www.)
+};
+
+// Find all URLs in text. Detects http://, https://, ftp://, www. prefixes.
+inline std::vector<UrlSpan> FindUrls(const std::wstring& text) {
+    std::vector<UrlSpan> result;
+    int len = static_cast<int>(text.size());
+    int pos = 0;
+
+    while (pos < len) {
+        // Check for URL prefix at current position
+        bool hasScheme = false;
+        int prefixLen = 0;
+
+        if (pos + 7 <= len && _wcsnicmp(&text[pos], L"http://", 7) == 0) {
+            hasScheme = true;
+            prefixLen = 7;
+        } else if (pos + 8 <= len && _wcsnicmp(&text[pos], L"https://", 8) == 0) {
+            hasScheme = true;
+            prefixLen = 8;
+        } else if (pos + 6 <= len && _wcsnicmp(&text[pos], L"ftp://", 6) == 0) {
+            hasScheme = true;
+            prefixLen = 6;
+        } else if (pos + 4 <= len && _wcsnicmp(&text[pos], L"www.", 4) == 0) {
+            hasScheme = false;
+            prefixLen = 4;
+        }
+
+        if (prefixLen == 0) {
+            ++pos;
+            continue;
+        }
+
+        int start = pos;
+        int end = pos + prefixLen;
+
+        // Consume until whitespace or end
+        while (end < len && text[end] != L' ' && text[end] != L'\t' &&
+               text[end] != L'\r' && text[end] != L'\n')
+            ++end;
+
+        // Strip trailing punctuation that likely belongs to the sentence
+        while (end > start + prefixLen) {
+            wchar_t ch = text[end - 1];
+            if (ch == L'.' || ch == L',' || ch == L')' || ch == L'>' ||
+                ch == L']' || ch == L'!' || ch == L'?' || ch == L';' ||
+                ch == L'\'' || ch == L'"')
+                --end;
+            else
+                break;
+        }
+
+        // Only accept if there's content beyond the prefix
+        if (end > start + prefixLen) {
+            UrlSpan span;
+            span.start = start;
+            span.end = end;
+            std::wstring raw = text.substr(start, end - start);
+            span.url = hasScheme ? raw : (L"http://" + raw);
+            result.push_back(std::move(span));
+            pos = end;
+        } else {
+            pos = start + 1;
+        }
+    }
+
+    return result;
 }
 
 // Get the directory containing the running EXE

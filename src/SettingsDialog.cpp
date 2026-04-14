@@ -85,6 +85,7 @@ SettingsData SettingsDialog::LoadFromStorage() {
     d.confirmDelete    = getInt(L"confirm.delete", 1) != 0;
     d.previewEnabled   = getInt(L"notelist.preview", 0) != 0;
     d.previewDelay     = getInt(L"preview.delay", 400);
+    d.clickableLinks   = getInt(L"display.clickableLinks", 1) != 0;
     d.trayDoubleClick  = getInt(L"tray.doubleclick", 0);
     d.language         = getStr(L"default.language", Localization::Get().GetCurrentLanguage().c_str());
 
@@ -119,6 +120,7 @@ void SettingsDialog::SaveToStorage(const SettingsData& data) {
     intS[L"confirm.delete"]        = data.confirmDelete ? 1 : 0;
     intS[L"notelist.preview"]      = data.previewEnabled ? 1 : 0;
     intS[L"preview.delay"]         = data.previewDelay;
+    intS[L"display.clickableLinks"] = data.clickableLinks ? 1 : 0;
     intS[L"tray.doubleclick"]      = data.trayDoubleClick;
     strS[L"default.language"]      = data.language;
 
@@ -710,7 +712,7 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
         // Icon before the text
         HWND hIcon = CreateWindowExW(0, L"STATIC", nullptr,
             WS_CHILD | WS_VISIBLE | SS_ICON,
-            x, y + (headerH - iconCy) / 2, iconCx, iconCy,
+            x, y + (headerH - iconCy) / 2 - 1, iconCx, iconCy,
             panel, nullptr, nullptr, nullptr);
         SendMessageW(hIcon, STM_SETICON, reinterpret_cast<WPARAM>(hGroupIcon), 0);
 
@@ -738,6 +740,16 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     SendMessageW(hPreviewCheck, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
     if (m_data.previewEnabled)
         SendMessageW(hPreviewCheck, BM_SETCHECK, BST_CHECKED, 0);
+    y += rowH;
+
+    HWND hLinksCheck = CreateWindowExW(0, L"BUTTON", Ls(L"settings.clickable_links").c_str(),
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        ix, y, contentW - indent, 18,
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CLICKABLE_LINKS)),
+        nullptr, nullptr);
+    SendMessageW(hLinksCheck, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
+    if (m_data.clickableLinks)
+        SendMessageW(hLinksCheck, BM_SETCHECK, BST_CHECKED, 0);
     y += rowH;
 
     HWND hDelayLabel = CreateWindowExW(0, L"STATIC", Ls(L"settings.preview_delay").c_str(),
@@ -1133,6 +1145,9 @@ void SettingsDialog::ReadFromControls() {
 
     HWND hPreviewCheck = GetDlgItem(gp, IDC_PREVIEW_ENABLED);
     if (hPreviewCheck) m_data.previewEnabled = (SendMessageW(hPreviewCheck, BM_GETCHECK, 0, 0) == BST_CHECKED);
+
+    HWND hLinksCheck = GetDlgItem(gp, IDC_CLICKABLE_LINKS);
+    if (hLinksCheck) m_data.clickableLinks = (SendMessageW(hLinksCheck, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     hSpin = GetDlgItem(gp, IDC_PREVIEW_DELAY_SPIN);
     if (hSpin) m_data.previewDelay = static_cast<int>(SendMessageW(hSpin, UDM_GETPOS32, 0, 0));

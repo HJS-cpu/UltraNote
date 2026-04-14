@@ -290,7 +290,7 @@ static LRESULT CALLBACK AboutLinkSubclassProc(HWND hwnd, UINT msg,
             return TRUE;
         case WM_LBUTTONUP:
             ShellExecuteW(hwnd, L"open",
-                          L"https://github.com/HJS-cpu/UltaNote",
+                          L"https://github.com/HJS-cpu/UltraNote",
                           nullptr, nullptr, SW_SHOWNORMAL);
             return 0;
         case WM_NCDESTROY:
@@ -357,7 +357,7 @@ void Application::ShowAboutDialog(HWND hParent) {
     p += sizeof(DLGITEMTEMPLATE);
     *reinterpret_cast<WORD*>(p) = 0xFFFF; p += sizeof(WORD);
     *reinterpret_cast<WORD*>(p) = 0x0082; p += sizeof(WORD);
-    writeStr(L"github.com/HJS-cpu/UltaNote");
+    writeStr(L"github.com/HJS-cpu/UltraNote");
     *reinterpret_cast<WORD*>(p) = 0; p += sizeof(WORD);
     align4();
 
@@ -941,6 +941,9 @@ void Application::ApplySettings() {
         InvalidateRect(wnd->GetHwnd(), nullptr, TRUE);
     }
     m_dirty = true;
+
+    // Apply clickable links setting
+    m_clickableLinks = data.clickableLinks;
 
     // Apply preview setting to note list
     if (m_noteListWindow) {

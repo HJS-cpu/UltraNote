@@ -1,7 +1,7 @@
 #pragma once
 
 // Version
-#define ULTRANOTE_VERSION       L"v0.6 Alpha"
+#define ULTRANOTE_VERSION       L"v0.8 Alpha"
 
 // Icons
 #define IDI_APP                 101
@@ -104,6 +104,7 @@
 #define IDC_PREVIEW_DELAY_EDIT  535
 #define IDC_TRAY_DBLCLICK       536
 #define IDC_LANGUAGE            537
+#define IDC_CLICKABLE_LINKS     538
 
 // Global hotkey IDs (for RegisterHotKey)
 #define IDH_GLOBAL_NEWNOTE      1

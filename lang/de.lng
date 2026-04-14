@@ -107,6 +107,7 @@ settings.autosave=Automatisch alle
 settings.seconds=Sek.
 settings.confirm_delete=Lösch-Bestätigung anzeigen
 settings.preview_enabled=Vorschau in Notizliste aktivieren
+settings.clickable_links=URL's als klickbare Links darstellen
 settings.preview_delay=Vorschau-Verzögerung:
 settings.tray_dblclick=Tray-Doppelklick:
 settings.tray_newnote=Neue Notiz

@@ -135,6 +135,15 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
             if (m_inEditMode) break; // Let edit control handle it
 
+            // Check if click is on a URL link
+            {
+                int urlIdx = UrlHitTest(x, y);
+                if (urlIdx >= 0) {
+                    m_pendingUrlClick = urlIdx;
+                    return 0;
+                }
+            }
+
             int hit = HitTest(x, y);
             if (hit != HTCLIENT) {
                 // Edge hit -> resize
@@ -186,6 +195,12 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
                 // Normal cursor handling (only outside edit mode)
                 if (!m_inEditMode) {
+                    // Check for URL hover (hand cursor)
+                    if (UrlHitTest(x, y) >= 0) {
+                        SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                        return 0;
+                    }
+
                     int hit = HitTest(x, y);
                     switch (hit) {
                         case HTLEFT: case HTRIGHT:
@@ -207,6 +222,18 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_LBUTTONUP: {
             int x = GET_X_LPARAM(lParam);
             int y = GET_Y_LPARAM(lParam);
+
+            // Handle pending URL click (set in WM_LBUTTONDOWN)
+            if (m_pendingUrlClick >= 0) {
+                int urlIdx = m_pendingUrlClick;
+                m_pendingUrlClick = -1;
+                if (urlIdx < static_cast<int>(m_urlRects.size()) && UrlHitTest(x, y) == urlIdx) {
+                    ShellExecuteW(m_hwnd, L"open", m_urlRects[urlIdx].url.c_str(),
+                                  nullptr, nullptr, SW_SHOWNORMAL);
+                }
+                return 0;
+            }
+
             if (m_dragging) {
                 UpdateDrag(x, y);
                 EndDrag();
@@ -225,6 +252,7 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         case WM_LBUTTONDBLCLK: {
+            m_pendingUrlClick = -1;  // Cancel pending URL click
             if (!m_inEditMode) {
                 Application::Get().ClearSelection();
                 EnterEditMode();
@@ -397,7 +425,10 @@ void NoteWindow::PaintBorder(HDC hdc, const RECT& rc) {
 }
 
 void NoteWindow::PaintText(HDC hdc, const RECT& rc) {
-    if (m_data->text.empty()) return;
+    if (m_data->text.empty()) {
+        m_urlRects.clear();
+        return;
+    }
 
     HFONT hFont = CreateFontFromParams(m_data->layout.fontFace,
                                         m_data->layout.fontSizePts,
@@ -405,7 +436,6 @@ void NoteWindow::PaintText(HDC hdc, const RECT& rc) {
                                         m_data->layout.fontItalic, hdc);
     GdiSelect fontSel(hdc, hFont);
 
-    SetTextColor(hdc, m_data->layout.textColor);
     SetBkMode(hdc, TRANSPARENT);
 
     int abHeight = GetAttachmentBarHeight();
@@ -416,10 +446,167 @@ void NoteWindow::PaintText(HDC hdc, const RECT& rc) {
         rc.bottom - TEXT_PADDING - abHeight
     };
 
-    DrawTextW(hdc, m_data->text.c_str(), static_cast<int>(m_data->text.size()),
-              &textRc, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX | DT_EDITCONTROL);
+    if (Application::Get().AreClickableLinksEnabled()) {
+        PaintTextWithLinks(hdc, textRc);
+    } else {
+        m_urlRects.clear();
+        SetTextColor(hdc, m_data->layout.textColor);
+        DrawTextW(hdc, m_data->text.c_str(), static_cast<int>(m_data->text.size()),
+                  &textRc, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX | DT_EDITCONTROL);
+    }
 
     DeleteObject(hFont);
+}
+
+void NoteWindow::PaintTextWithLinks(HDC hdc, const RECT& textRc) {
+    m_urlRects.clear();
+
+    const std::wstring& text = m_data->text;
+    std::vector<UrlSpan> urls = FindUrls(text);
+
+    TEXTMETRICW tm;
+    GetTextMetricsW(hdc, &tm);
+    int lineHeight = tm.tmHeight + tm.tmExternalLeading;
+    int maxWidth = textRc.right - textRc.left;
+
+    if (maxWidth <= 0 || lineHeight <= 0) return;
+
+    // Create underlined font for URL segments
+    LOGFONTW lf;
+    HFONT hCurFont = static_cast<HFONT>(GetCurrentObject(hdc, OBJ_FONT));
+    GetObjectW(hCurFont, sizeof(lf), &lf);
+    lf.lfUnderline = TRUE;
+    HFONT hUrlFont = CreateFontIndirectW(&lf);
+
+    int textLen = static_cast<int>(text.size());
+    int curY = textRc.top;
+    int pos = 0;
+
+    // Helper: find which URL span contains character index 'idx'
+    auto findUrl = [&](int idx) -> const UrlSpan* {
+        for (auto& u : urls) {
+            if (idx >= u.start && idx < u.end)
+                return &u;
+        }
+        return nullptr;
+    };
+
+    // Helper: find start of next URL after character index 'from', up to 'limit'
+    auto nextUrlStart = [&](int from, int limit) -> int {
+        int best = limit;
+        for (auto& u : urls) {
+            if (u.start > from && u.start < best)
+                best = u.start;
+        }
+        return best;
+    };
+
+    // Set clip region to text area
+    HRGN hClip = CreateRectRgn(textRc.left, textRc.top, textRc.right, textRc.bottom);
+    SelectClipRgn(hdc, hClip);
+
+    while (pos < textLen && curY + lineHeight <= textRc.bottom) {
+        // Find end of current paragraph (up to \r\n or \n)
+        int paraEnd = pos;
+        while (paraEnd < textLen && text[paraEnd] != L'\r' && text[paraEnd] != L'\n')
+            ++paraEnd;
+
+        // Word-wrap this paragraph into visual lines
+        int lineStart = pos;
+        if (lineStart == paraEnd) {
+            // Empty paragraph — advance one line for the blank line
+            curY += lineHeight;
+        }
+        while (lineStart < paraEnd && curY + lineHeight <= textRc.bottom) {
+            int remaining = paraEnd - lineStart;
+
+            // Determine how many characters fit in maxWidth
+            int fitCount = 0;
+            SIZE sz;
+            GetTextExtentExPointW(hdc, &text[lineStart], remaining,
+                                  maxWidth, &fitCount, nullptr, &sz);
+
+            int visualLineEnd;
+            if (fitCount >= remaining) {
+                visualLineEnd = paraEnd;
+            } else {
+                // Word-break: scan backward from fitCount to find last space
+                visualLineEnd = lineStart + fitCount;
+                int breakPos = visualLineEnd;
+                while (breakPos > lineStart && text[breakPos] != L' ' &&
+                       text[breakPos] != L'\t')
+                    --breakPos;
+                if (breakPos > lineStart) {
+                    visualLineEnd = breakPos;
+                } else {
+                    // No space found — break mid-word at fitCount
+                    visualLineEnd = lineStart + fitCount;
+                    if (visualLineEnd == lineStart) visualLineEnd++;
+                }
+            }
+
+            // Render this visual line segment by segment
+            int curX = textRc.left;
+            int segStart = lineStart;
+
+            while (segStart < visualLineEnd) {
+                const UrlSpan* activeUrl = findUrl(segStart);
+
+                int segEnd;
+                if (activeUrl) {
+                    segEnd = (std::min)(activeUrl->end, visualLineEnd);
+
+                    // URL style: blue + underline
+                    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, hUrlFont));
+                    SetTextColor(hdc, RGB(0, 0, 238));
+
+                    int segLen = segEnd - segStart;
+                    SIZE segSize;
+                    GetTextExtentPoint32W(hdc, &text[segStart], segLen, &segSize);
+                    TextOutW(hdc, curX, curY, &text[segStart], segLen);
+
+                    // Store URL rect for hit-testing
+                    RECT urlRect = { curX, curY, curX + segSize.cx, curY + lineHeight };
+                    m_urlRects.push_back({ urlRect, activeUrl->url });
+
+                    curX += segSize.cx;
+
+                    SelectObject(hdc, oldFont);
+                } else {
+                    segEnd = nextUrlStart(segStart, visualLineEnd);
+
+                    // Normal text style
+                    SetTextColor(hdc, m_data->layout.textColor);
+
+                    int segLen = segEnd - segStart;
+                    SIZE segSize;
+                    GetTextExtentPoint32W(hdc, &text[segStart], segLen, &segSize);
+                    TextOutW(hdc, curX, curY, &text[segStart], segLen);
+
+                    curX += segSize.cx;
+                }
+
+                segStart = segEnd;
+            }
+
+            curY += lineHeight;
+
+            // Advance past the visual line, skip leading spaces for next line
+            lineStart = visualLineEnd;
+            if (lineStart < paraEnd && (text[lineStart] == L' ' || text[lineStart] == L'\t'))
+                ++lineStart;
+        }
+
+        // Skip paragraph break (\r\n or \n or \r)
+        pos = paraEnd;
+        if (pos < textLen && text[pos] == L'\r') ++pos;
+        if (pos < textLen && text[pos] == L'\n') ++pos;
+    }
+
+    // Restore clip region
+    SelectClipRgn(hdc, nullptr);
+    DeleteObject(hClip);
+    DeleteObject(hUrlFont);
 }
 
 // ============================================================================
@@ -959,6 +1146,15 @@ int NoteWindow::AttachmentHitTest(int x, int y) const {
         if (y >= rowY && y < rowY + ATTACH_ROW_HEIGHT)
             return i;
         rowY += ATTACH_ROW_HEIGHT;
+    }
+    return -1;
+}
+
+int NoteWindow::UrlHitTest(int x, int y) const {
+    POINT pt = { x, y };
+    for (int i = 0; i < static_cast<int>(m_urlRects.size()); ++i) {
+        if (PtInRect(&m_urlRects[i].rect, pt))
+            return i;
     }
     return -1;
 }

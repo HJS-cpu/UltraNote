@@ -79,6 +79,7 @@ public:
     void UnregisterGlobalHotkeys();
 
     HINSTANCE GetInstance() const { return m_hInst; }
+    bool      AreClickableLinksEnabled() const { return m_clickableLinks; }
     HBITMAP   GetMenuBitmap(SHSTOCKICONID id);
     HBITMAP   GetResourceBitmap(UINT iconResId);
 
@@ -113,6 +114,7 @@ private:
     uint64_t m_nextId       = 1;
     bool     m_dirty        = false;
     bool     m_notesVisible = true;
+    bool     m_clickableLinks = true;
     int      m_cascadeX     = 100;
     int      m_cascadeY     = 100;
 

@@ -107,6 +107,7 @@ settings.autosave=Automatically every
 settings.seconds=sec.
 settings.confirm_delete=Show delete confirmation
 settings.preview_enabled=Enable preview in note list
+settings.clickable_links=Render URL's as clickable links
 settings.preview_delay=Preview delay:
 settings.tray_dblclick=Tray double-click:
 settings.tray_newnote=New Note

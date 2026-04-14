@@ -42,6 +42,7 @@ struct SettingsData {
     bool     confirmDelete      = true;
     bool     previewEnabled     = false;
     int      previewDelay       = 400;
+    bool     clickableLinks     = true;
     int      trayDoubleClick    = 0;   // 0=new note, 1=note list, 2=show all
     std::wstring language       = L"en";
 

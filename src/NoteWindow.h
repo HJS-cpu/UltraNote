@@ -46,12 +46,14 @@ private:
     void PaintBackground(HDC hdc, const RECT& rc);
     void PaintBorder(HDC hdc, const RECT& rc);
     void PaintText(HDC hdc, const RECT& rc);
+    void PaintTextWithLinks(HDC hdc, const RECT& textRc);
     void PaintAttachmentBar(HDC hdc, const RECT& rc);
 
     // Attachment bar
     int  GetAttachmentBarHeight() const;
     RECT GetAttachmentBarRect() const;
     int  AttachmentHitTest(int x, int y) const;  // Returns attachment index or -1
+    int  UrlHitTest(int x, int y) const;        // Returns index into m_urlRects or -1
     void HandleDropFiles(HDROP hDrop);
     void OpenAttachment(int index);
     void RemoveAttachment(int index);
@@ -101,6 +103,14 @@ private:
     int        m_resizeHitZone = 0;
     POINT      m_resizeStartCursor = {};
     RECT       m_resizeStartRect   = {};
+
+    // Cached URL rectangles for hit-testing (valid only in non-edit mode)
+    struct UrlRect {
+        RECT rect;
+        std::wstring url;
+    };
+    std::vector<UrlRect> m_urlRects;
+    int m_pendingUrlClick = -1;
 
     // Attachment icon cache
     std::vector<HICON> m_attachIcons;
