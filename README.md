@@ -18,6 +18,8 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 | **Paste as Note** | Create a new note directly from clipboard content |
 | **Copy to Clipboard** | Copy note text with a single keystroke |
 | **Folders** | Organize notes into custom folders |
+| **Clickable Links** | URL's rendered as blue underlined links, single-click to open in browser (toggleable) |
+| **Attachments** | Drag & drop files onto notes, click to open, stored as path references |
 
 ### Note List
 
@@ -28,6 +30,8 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 | **Hover Preview** | Hover over a note entry to preview it on screen |
 | **Toolbar** | New, Edit, Delete, Show All, Hide All with icon toolbar |
 | **Context Menu** | Right-click for rename, folder assignment, and more |
+| **Status Bar** | Shows total / filtered note count |
+| **Search** | Live search across note titles and text |
 
 ### Settings Dialog
 
@@ -35,8 +39,8 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 |-----|---------|
 | **Layout** | Default background, text, and border colors; font selection; live preview |
 | **Keyboard** | Customize all shortcuts (2 local + 2 global hotkeys) |
-| **General** | Autosave interval, delete confirmation, preview toggle & delay, tray behavior, language |
-| **Misc** | New note position, cascade step/reset, default folder |
+| **General** | Autosave interval, delete confirmation, preview toggle & delay, clickable links toggle, tray behavior, language |
+| **Misc** | New note position, cascade step/reset, default folder, initial text with strftime variables |
 
 ### Localization
 
@@ -57,7 +61,7 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 
 > **Portable:** Single EXE, no installation needed. All data (notes, settings) stored next to the executable.
 
-Download the latest version from the [Releases](https://gitlab.com/HJS-cpu/ultranote/-/releases) page.
+Download the latest version from [GitHub Releases](https://github.com/HJS-cpu/UltraNote/releases) or [GitLab Releases](https://gitlab.com/HJS-cpu/ultranote/-/releases).
 
 ---
 
@@ -103,7 +107,8 @@ UltraNote/
 │   ├── UltraNote.rc          # Resources
 │   ├── UltraNote.ico         # Application icon
 │   └── UltraNote.manifest    # ComCtl v6, DPI awareness
-└── .gitlab-ci.yml            # CI: build → upload → release
+├── .github/workflows/build.yml # GitHub Actions CI
+└── .gitlab-ci.yml              # GitLab CI: build → upload → release
 ```
 
 ---
@@ -124,9 +129,9 @@ cmake --build build --config Release
 
 The executable and language files will be in `build/Release/`.
 
-### CI / GitLab CI
+### CI/CD
 
-Every push to `master` triggers an automatic Release build via GitLab SaaS Windows Runner. Tagged commits (`v*`) create a permanent GitLab Release with download links. See the [Releases](https://gitlab.com/HJS-cpu/ultranote/-/releases) page.
+Every push to `master` triggers automatic builds on both GitHub Actions and GitLab CI. Tagged commits (`v*`) create releases with portable ZIP downloads on both platforms.
 
 ---
 
@@ -137,8 +142,10 @@ Every push to `master` triggers an automatic Release build via GitLab SaaS Windo
 - [x] **Phase 1.7** — Note list preview, release build optimization
 - [x] **Phase 2** — Settings dialog, global hotkeys, about dialog
 - [x] **Phase 2.5** — Search function in note list
-- [x] **Phase 3** — Custom icons replacing shell stock icons
-- [ ] **Phase 4** — Alarm system, print support, minimize/restore
+- [x] **Phase 3** — Custom icons, stability fixes, selection overhaul, hotkey cleanup, status bar
+- [x] **Phase 3.9** — Attachment bar (drag & drop file references), initial text variables
+- [x] **Phase 4** — Clickable URL detection, version 0.8
+- [ ] **Phase 5** — Alarm system, print support, minimize/restore
 
 ---
 
@@ -150,6 +157,14 @@ Every push to `master` triggers an automatic Release build via GitLab SaaS Windo
 ---
 
 ## Changelog
+
+### v0.8 Alpha (2026-04-14)
+- Clickable URL detection in notes (http, https, ftp, www) — blue underlined links with hand cursor
+- Toggleable via Settings > General > Display
+- Attachment bar: drag & drop files onto notes, click to open
+- Initial text variables (strftime) for new notes
+- Status bar in note list showing total/filtered count
+- Fix About dialog link typo
 
 ### v0.6 Alpha (2026-02-21)
 - Custom icon set replacing Windows shell stock icons
