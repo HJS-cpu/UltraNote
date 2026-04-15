@@ -67,6 +67,9 @@ private:
     static LRESULT CALLBACK SearchEditSubclassProc(
         HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
         UINT_PTR subId, DWORD_PTR refData);
+    static LRESULT CALLBACK HeaderSubclassProc(
+        HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+        UINT_PTR subId, DWORD_PTR refData);
 
     HWND       m_hwnd           = nullptr;
     HWND       m_hToolbar       = nullptr;
@@ -85,7 +88,7 @@ private:
     int  m_sortColumn    = -1;
     bool m_sortAscending = true;
 
-    enum Column { COL_TITLE = 0, COL_TEXT, COL_FOLDER, COL_HIDDEN, COL_ONTOP, COL_CREATED, COL_COUNT };
+    enum Column { COL_TITLE = 0, COL_TEXT, COL_FOLDER, COL_HIDDEN, COL_ONTOP, COL_CREATED, COL_ATTACH, COL_COUNT };
 
     // Splitter between folder list and listview
     int  m_folderListWidth   = 150;

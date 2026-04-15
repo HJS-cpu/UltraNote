@@ -358,11 +358,9 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             auto* nmhdr = reinterpret_cast<NMHDR*>(lParam);
             if (nmhdr->hwndFrom == m_hListView) {
                 switch (nmhdr->code) {
-                    case LVN_COLUMNCLICK: {
-                        auto* nmlv = reinterpret_cast<NMLISTVIEW*>(lParam);
-                        SortByColumn(nmlv->iSubItem);
+                    case LVN_COLUMNCLICK:
+                        // Handled by HeaderSubclassProc (WM_LBUTTONUP)
                         return 0;
-                    }
                     case NM_CLICK: {
                         LVHITTESTINFO htInfo = {};
                         GetCursorPos(&htInfo.pt);
@@ -443,20 +441,31 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                 return CDRF_NOTIFYSUBITEMDRAW;
                             case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
                                 int sub = cd->iSubItem;
+                                int itemIdx = static_cast<int>(cd->nmcd.dwItemSpec);
+
+                                // Check if item is selected + focus state for correct colors
+                                bool selected = (ListView_GetItemState(m_hListView, itemIdx, LVIS_SELECTED) & LVIS_SELECTED) != 0;
+                                HWND hFocus = GetFocus();
+                                bool hasFocus = (hFocus == m_hListView || IsChild(m_hwnd, hFocus));
+                                COLORREF bgColor, txColor;
+                                if (selected && hasFocus) {
+                                    bgColor = GetSysColor(COLOR_HIGHLIGHT);
+                                    txColor = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                                } else if (selected) {
+                                    bgColor = GetSysColor(COLOR_BTNFACE);
+                                    txColor = GetSysColor(COLOR_BTNTEXT);
+                                } else {
+                                    bgColor = GetSysColor(COLOR_WINDOW);
+                                    txColor = GetSysColor(COLOR_WINDOWTEXT);
+                                }
+
                                 if (sub == COL_HIDDEN || sub == COL_ONTOP) {
-                                    // Draw checkbox character larger and centered
                                     RECT rc = {};
-                                    ListView_GetSubItemRect(m_hListView,
-                                        static_cast<int>(cd->nmcd.dwItemSpec),
-                                        sub, LVIR_BOUNDS, &rc);
+                                    ListView_GetSubItemRect(m_hListView, itemIdx, sub, LVIR_BOUNDS, &rc);
 
-                                    // Get item text
                                     wchar_t buf[4] = {};
-                                    ListView_GetItemText(m_hListView,
-                                        static_cast<int>(cd->nmcd.dwItemSpec),
-                                        sub, buf, 4);
+                                    ListView_GetItemText(m_hListView, itemIdx, sub, buf, 4);
 
-                                    // Create larger font for checkboxes
                                     HFONT hLargeFont = CreateFontW(
                                         20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
@@ -465,9 +474,8 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                     HFONT hOldFont = static_cast<HFONT>(
                                         SelectObject(cd->nmcd.hdc, hLargeFont));
 
-                                    // Fill background with normal window color
-                                    SetBkColor(cd->nmcd.hdc, GetSysColor(COLOR_WINDOW));
-                                    SetTextColor(cd->nmcd.hdc, GetSysColor(COLOR_WINDOWTEXT));
+                                    SetBkColor(cd->nmcd.hdc, bgColor);
+                                    SetTextColor(cd->nmcd.hdc, txColor);
                                     ExtTextOutW(cd->nmcd.hdc, 0, 0, ETO_OPAQUE,
                                                 &rc, nullptr, 0, nullptr);
 
@@ -478,6 +486,32 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                     DeleteObject(hLargeFont);
                                     return CDRF_SKIPDEFAULT;
                                 }
+                                if (sub == COL_ATTACH) {
+                                    RECT rc = {};
+                                    ListView_GetSubItemRect(m_hListView, itemIdx, sub, LVIR_BOUNDS, &rc);
+
+                                    HBRUSH hBg = CreateSolidBrush(bgColor);
+                                    FillRect(cd->nmcd.hdc, &rc, hBg);
+                                    DeleteObject(hBg);
+
+                                    wchar_t buf[4] = {};
+                                    ListView_GetItemText(m_hListView, itemIdx, sub, buf, 4);
+                                    if (buf[0] != L'\0') {
+                                        int iconCx = GetSystemMetrics(SM_CXSMICON);
+                                        int iconCy = GetSystemMetrics(SM_CYSMICON);
+                                        int iconX = rc.left + (rc.right - rc.left - iconCx) / 2;
+                                        int iconY = rc.top + (rc.bottom - rc.top - iconCy) / 2;
+                                        HICON hIcon = static_cast<HICON>(LoadImageW(
+                                            GetModuleHandleW(nullptr), MAKEINTRESOURCE(IDI_ATTACHMENT),
+                                            IMAGE_ICON, iconCx, iconCy, LR_DEFAULTCOLOR));
+                                        if (hIcon) {
+                                            DrawIconEx(cd->nmcd.hdc, iconX, iconY, hIcon,
+                                                       iconCx, iconCy, 0, nullptr, DI_NORMAL);
+                                            DestroyIcon(hIcon);
+                                        }
+                                    }
+                                    return CDRF_SKIPDEFAULT;
+                                }
                                 return CDRF_DODEFAULT;
                             }
                         }
@@ -485,50 +519,10 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     }
                 }
             }
-            // Header custom draw (gray column headers)
-            HWND hHeader = m_hListView ? ListView_GetHeader(m_hListView) : nullptr;
-            if (hHeader && nmhdr->hwndFrom == hHeader && nmhdr->code == NM_CUSTOMDRAW) {
-                auto* cd = reinterpret_cast<NMCUSTOMDRAW*>(lParam);
-                switch (cd->dwDrawStage) {
-                    case CDDS_PREPAINT:
-                        return CDRF_NOTIFYITEMDRAW;
-                    case CDDS_ITEMPREPAINT: {
-                        // Gray background matching "Alle Notizen"
-                        HBRUSH hBrush = CreateSolidBrush(RGB(230, 230, 230));
-                        FillRect(cd->hdc, &cd->rc, hBrush);
-                        DeleteObject(hBrush);
-
-                        // Get header item text
-                        HDITEMW hdi = {};
-                        wchar_t buf[128] = {};
-                        hdi.mask = HDI_TEXT;
-                        hdi.pszText = buf;
-                        hdi.cchTextMax = 128;
-                        SendMessageW(hHeader, HDM_GETITEMW, cd->dwItemSpec,
-                                     reinterpret_cast<LPARAM>(&hdi));
-
-                        // Draw text
-                        SetBkMode(cd->hdc, TRANSPARENT);
-                        SetTextColor(cd->hdc, GetSysColor(COLOR_BTNTEXT));
-                        RECT textRc = cd->rc;
-                        textRc.left += 6;
-                        DrawTextW(cd->hdc, buf, -1, &textRc,
-                                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-                        // Subtle right border
-                        HPEN hPen = CreatePen(PS_SOLID, 1, RGB(200, 200, 200));
-                        HGDIOBJ oldPen = SelectObject(cd->hdc, hPen);
-                        MoveToEx(cd->hdc, cd->rc.right - 1, cd->rc.top, nullptr);
-                        LineTo(cd->hdc, cd->rc.right - 1, cd->rc.bottom);
-                        SelectObject(cd->hdc, oldPen);
-                        DeleteObject(hPen);
-
-                        return CDRF_SKIPDEFAULT;
-                    }
-                    default:
-                        return CDRF_DODEFAULT;
-                }
-            }
+            // Header NM_CUSTOMDRAW: CDDS_ITEMPREPAINT/POSTPAINT are never
+            // delivered (ListView swallows the return value from CDDS_PREPAINT).
+            // The gray header appearance comes from SetWindowTheme alone.
+            // Sort arrows are set via HDF_SORTUP/HDF_SORTDOWN in SortByColumn().
             if (nmhdr->hwndFrom == m_hToolbar && nmhdr->code == NM_CUSTOMDRAW) {
                 auto* cd = reinterpret_cast<NMTBCUSTOMDRAW*>(lParam);
                 switch (cd->nmcd.dwDrawStage) {
@@ -904,6 +898,31 @@ LRESULT CALLBACK NoteListWindow::SearchEditSubclassProc(
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
+LRESULT CALLBACK NoteListWindow::HeaderSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR /*subId*/, DWORD_PTR refData)
+{
+    if (msg == WM_LBUTTONUP) {
+        HDHITTESTINFO htInfo = {};
+        htInfo.pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        SendMessageW(hwnd, HDM_HITTEST, 0, reinterpret_cast<LPARAM>(&htInfo));
+
+        // Let default processing finish first (may reset header state)
+        LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+
+        if (htInfo.iItem >= 0 && (htInfo.flags & HHT_ONHEADER)) {
+            auto* self = reinterpret_cast<NoteListWindow*>(refData);
+            if (self)
+                self->SortByColumn(htInfo.iItem);
+        }
+        return result;
+    }
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, HeaderSubclassProc, 0);
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
 void NoteListWindow::FocusSearchField() {
     if (m_hSearchEdit) {
         SetFocus(m_hSearchEdit);
@@ -1024,6 +1043,10 @@ void NoteListWindow::CreateListView() {
     HWND hHeader = ListView_GetHeader(m_hListView);
     if (hHeader) {
         SetWindowTheme(hHeader, L"", L"");
+        // Subclass header for reliable click detection — the unthemed header's
+        // internal state machine sometimes fails to fire HDN_ITEMCLICK/LVN_COLUMNCLICK
+        SetWindowSubclass(hHeader, HeaderSubclassProc, 0,
+                          reinterpret_cast<DWORD_PTR>(this));
     }
 }
 
@@ -1058,6 +1081,16 @@ void NoteListWindow::SetupColumns() {
     col.cx = 130;
     col.pszText = const_cast<LPWSTR>(Ls(L"notelist.col_created").c_str());
     ListView_InsertColumn(m_hListView, COL_CREATED, &col);
+
+    col.cx = 30;
+    col.fmt = LVCFMT_CENTER;
+    col.pszText = const_cast<LPWSTR>(L"");
+    ListView_InsertColumn(m_hListView, COL_ATTACH, &col);
+
+    // Visual order: Attach first, then the rest
+    int order[COL_COUNT] = { COL_ATTACH, COL_TITLE, COL_TEXT, COL_FOLDER,
+                             COL_HIDDEN, COL_ONTOP, COL_CREATED };
+    ListView_SetColumnOrderArray(m_hListView, COL_COUNT, order);
 }
 
 void NoteListWindow::PopulateList() {
@@ -1138,6 +1171,10 @@ void NoteListWindow::PopulateList() {
                              const_cast<LPWSTR>(note.isHidden ? L"\u2611" : L"\u2610"));
         ListView_SetItemText(m_hListView, idx, COL_ONTOP,
                              const_cast<LPWSTR>(note.layout.alwaysOnTop ? L"\u2611" : L"\u2610"));
+
+        // Attachment indicator
+        if (!note.attachments.empty())
+            ListView_SetItemText(m_hListView, idx, COL_ATTACH, const_cast<LPWSTR>(L"\x1"));
 
         ++insertIdx;
     }
@@ -1266,7 +1303,8 @@ void NoteListWindow::LoadSettings() {
         const wchar_t* keys[] = {
             L"notelist.col0_width", L"notelist.col1_width",
             L"notelist.col2_width", L"notelist.col3_width",
-            L"notelist.col4_width", L"notelist.col5_width"
+            L"notelist.col4_width", L"notelist.col5_width",
+            L"notelist.col6_width"
         };
         for (int i = 0; i < COL_COUNT; ++i) {
             auto it = settings.find(keys[i]);
@@ -1314,6 +1352,22 @@ void NoteListWindow::SortByColumn(int col) {
 
     LPARAM sortParam = static_cast<LPARAM>(col) | (m_sortAscending ? 0x10000 : 0);
     ListView_SortItems(m_hListView, CompareFunc, sortParam);
+
+    // Update header sort arrows
+    HWND hHeader = ListView_GetHeader(m_hListView);
+    if (hHeader) {
+        int count = Header_GetItemCount(hHeader);
+        for (int i = 0; i < count; ++i) {
+            HDITEMW hdi = {};
+            hdi.mask = HDI_FORMAT;
+            Header_GetItem(hHeader, i, &hdi);
+            hdi.fmt &= ~(HDF_SORTUP | HDF_SORTDOWN);
+            if (i == col) {
+                hdi.fmt |= m_sortAscending ? HDF_SORTUP : HDF_SORTDOWN;
+            }
+            Header_SetItem(hHeader, i, &hdi);
+        }
+    }
 }
 
 int CALLBACK NoteListWindow::CompareFunc(LPARAM lp1, LPARAM lp2, LPARAM sortParam) {
@@ -1687,6 +1741,12 @@ void NoteListWindow::HidePreviewNote() {
     m_previewNoteId = 0;
     m_previewNoteIdx = -1;
     m_previewWasHidden = false;
+
+    // Restore focus and redraw so selection highlight stays blue
+    if (m_hListView) {
+        SetFocus(m_hListView);
+        InvalidateRect(m_hListView, nullptr, FALSE);
+    }
 }
 
 // ============================================================================
