@@ -227,7 +227,7 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     m_searchQuery.clear();
                 }
                 PopulateList();
-                if (m_sortColumn >= 0) SortByColumn(m_sortColumn);
+                ApplyCurrentSort();
                 return 0;
             }
 
@@ -247,6 +247,7 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     }
                 }
                 PopulateList();
+                ApplyCurrentSort();
                 return 0;
             }
 
@@ -260,15 +261,19 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 } else if (folderIdx - 1 < folders.size()) {
                     targetFolder = folders[folderIdx - 1];
                 }
-                // Apply to all selected notes
+                // Collect all selected note IDs first — SetNoteFolder triggers
+                // RefreshNoteList which repopulates the ListView and clears selection
+                std::vector<uint64_t> ids;
                 int idx = -1;
                 while ((idx = ListView_GetNextItem(m_hListView, idx, LVNI_SELECTED)) >= 0) {
                     LVITEMW item = {};
                     item.mask  = LVIF_PARAM;
                     item.iItem = idx;
                     ListView_GetItem(m_hListView, &item);
-                    Application::Get().SetNoteFolder(
-                        static_cast<uint64_t>(item.lParam), targetFolder);
+                    ids.push_back(static_cast<uint64_t>(item.lParam));
+                }
+                for (uint64_t noteId : ids) {
+                    Application::Get().SetNoteFolder(noteId, targetFolder);
                 }
                 return 0;
             }
@@ -437,8 +442,15 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                         switch (cd->nmcd.dwDrawStage) {
                             case CDDS_PREPAINT:
                                 return CDRF_NOTIFYITEMDRAW;
-                            case CDDS_ITEMPREPAINT:
+                            case CDDS_ITEMPREPAINT: {
+                                // Zebra striping for odd rows
+                                int itemIdx = static_cast<int>(cd->nmcd.dwItemSpec);
+                                bool selected = (ListView_GetItemState(m_hListView, itemIdx, LVIS_SELECTED) & LVIS_SELECTED) != 0;
+                                if (!selected && m_zebraStriping && (itemIdx % 2 == 1)) {
+                                    cd->clrTextBk = RGB(245, 245, 245);
+                                }
                                 return CDRF_NOTIFYSUBITEMDRAW;
+                            }
                             case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
                                 int sub = cd->iSubItem;
                                 int itemIdx = static_cast<int>(cd->nmcd.dwItemSpec);
@@ -457,6 +469,10 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                 } else {
                                     bgColor = GetSysColor(COLOR_WINDOW);
                                     txColor = GetSysColor(COLOR_WINDOWTEXT);
+                                    // Apply zebra striping
+                                    if (m_zebraStriping && (itemIdx % 2 == 1)) {
+                                        bgColor = RGB(245, 245, 245);
+                                    }
                                 }
 
                                 if (sub == COL_HIDDEN || sub == COL_ONTOP) {
@@ -902,7 +918,16 @@ LRESULT CALLBACK NoteListWindow::HeaderSubclassProc(
     HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
     UINT_PTR /*subId*/, DWORD_PTR refData)
 {
+    auto* self = reinterpret_cast<NoteListWindow*>(refData);
+
+    if (msg == WM_LBUTTONDOWN) {
+        if (self) self->m_headerMouseDown = true;
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
     if (msg == WM_LBUTTONUP) {
+        bool wasDown = self && self->m_headerMouseDown;
+        if (self) self->m_headerMouseDown = false;
+
         HDHITTESTINFO htInfo = {};
         htInfo.pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         SendMessageW(hwnd, HDM_HITTEST, 0, reinterpret_cast<LPARAM>(&htInfo));
@@ -910,12 +935,15 @@ LRESULT CALLBACK NoteListWindow::HeaderSubclassProc(
         // Let default processing finish first (may reset header state)
         LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
 
-        if (htInfo.iItem >= 0 && (htInfo.flags & HHT_ONHEADER)) {
-            auto* self = reinterpret_cast<NoteListWindow*>(refData);
+        // Only sort if WM_LBUTTONDOWN was received on the header first
+        if (wasDown && htInfo.iItem >= 0 && (htInfo.flags & HHT_ONHEADER)) {
             if (self)
                 self->SortByColumn(htInfo.iItem);
         }
         return result;
+    }
+    if (msg == WM_CAPTURECHANGED || msg == WM_CANCELMODE) {
+        if (self) self->m_headerMouseDown = false;
     }
     if (msg == WM_NCDESTROY) {
         RemoveWindowSubclass(hwnd, HeaderSubclassProc, 0);
@@ -1035,7 +1063,8 @@ void NoteListWindow::CreateListView() {
     );
 
     ListView_SetExtendedListViewStyle(m_hListView,
-        LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
+        LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER |
+        LVS_EX_HEADERDRAGDROP);
 
     SetupColumns();
 
@@ -1047,6 +1076,18 @@ void NoteListWindow::CreateListView() {
         // internal state machine sometimes fails to fire HDN_ITEMCLICK/LVN_COLUMNCLICK
         SetWindowSubclass(hHeader, HeaderSubclassProc, 0,
                           reinterpret_cast<DWORD_PTR>(this));
+    }
+
+    // Default sort by title column (ascending)
+    m_sortColumn = COL_TITLE;
+    m_sortAscending = true;
+    // Set initial sort arrow on header
+    if (hHeader) {
+        HDITEMW hdi = {};
+        hdi.mask = HDI_FORMAT;
+        Header_GetItem(hHeader, COL_TITLE, &hdi);
+        hdi.fmt |= HDF_SORTUP;
+        Header_SetItem(hHeader, COL_TITLE, &hdi);
     }
 }
 
@@ -1096,6 +1137,14 @@ void NoteListWindow::SetupColumns() {
 void NoteListWindow::PopulateList() {
     ListView_DeleteAllItems(m_hListView);
 
+    // Determine date format once (0 = YYYY-MM-DD HH:MM, 1 = DD.MM.YYYY HH:MM)
+    auto intSettings = Storage::LoadSettings();
+    auto itDateFmt = intSettings.find(L"notelist.dateFormat");
+    const wchar_t* dateFmt = L"%Y-%m-%d %H:%M";
+    if (itDateFmt != intSettings.end() && itDateFmt->second == 1) {
+        dateFmt = L"%d.%m.%Y %H:%M";
+    }
+
     auto& notes = Application::Get().GetAllNotes();
 
     int insertIdx = 0;
@@ -1125,13 +1174,10 @@ void NoteListWindow::PopulateList() {
             }
         }
 
-        // Title: use title field, fallback to first line of text
+        // Title: use title field, show placeholder if empty
         std::wstring titleDisplay = note.title;
         if (titleDisplay.empty()) {
-            titleDisplay = note.text;
-            auto nl = titleDisplay.find(L'\n');
-            if (nl != std::wstring::npos) titleDisplay = titleDisplay.substr(0, nl);
-            if (titleDisplay.empty()) titleDisplay = Ls(L"note.empty");
+            titleDisplay = Ls(L"note.untitled");
         }
 
         // Text: first line
@@ -1140,8 +1186,9 @@ void NoteListWindow::PopulateList() {
         if (nl != std::wstring::npos) textDisplay = textDisplay.substr(0, nl);
         if (textDisplay.empty()) textDisplay = Ls(L"note.empty");
 
-        // Folder display (empty if no folder assigned)
-        std::wstring folderDisplay = note.folder;
+        // Folder display
+        std::wstring folderDisplay = note.folder.empty()
+            ? Ls(L"note.no_folder") : note.folder;
 
         LVITEMW item = {};
         item.mask    = LVIF_TEXT | LVIF_PARAM;
@@ -1156,14 +1203,17 @@ void NoteListWindow::PopulateList() {
         ListView_SetItemText(m_hListView, idx, COL_FOLDER,
                              const_cast<LPWSTR>(folderDisplay.c_str()));
 
-        // Format timestamp
-        if (note.createdAt > 0) {
-            time_t t = static_cast<time_t>(note.createdAt);
-            struct tm tm = {};
-            localtime_s(&tm, &t);
-            wchar_t buf[64];
-            wcsftime(buf, 64, L"%Y-%m-%d %H:%M", &tm);
-            ListView_SetItemText(m_hListView, idx, COL_CREATED, buf);
+        // Format timestamp (prefer modifiedAt, fallback to createdAt)
+        {
+            int64_t ts = note.modifiedAt > 0 ? note.modifiedAt : note.createdAt;
+            if (ts > 0) {
+                time_t t = static_cast<time_t>(ts);
+                struct tm tm = {};
+                localtime_s(&tm, &t);
+                wchar_t buf[64];
+                wcsftime(buf, 64, dateFmt, &tm);
+                ListView_SetItemText(m_hListView, idx, COL_CREATED, buf);
+            }
         }
 
         // Checkbox columns
@@ -1184,11 +1234,13 @@ void NoteListWindow::PopulateList() {
 
 void NoteListWindow::Refresh() {
     if (!m_hListView) return;
+    // Cache display settings to avoid repeated LoadFromStorage calls
+    auto settings = SettingsDialog::LoadFromStorage();
+    m_zebraStriping = settings.zebraStriping;
+
     PopulateFolderList();
     PopulateList();
-    if (m_sortColumn >= 0) {
-        SortByColumn(m_sortColumn);
-    }
+    ApplyCurrentSort();
 }
 
 void NoteListWindow::ResizeControls() {
@@ -1311,6 +1363,20 @@ void NoteListWindow::LoadSettings() {
             if (it != settings.end() && it->second > 20)
                 ListView_SetColumnWidth(m_hListView, i, it->second);
         }
+
+        // Column order (restore user's drag & drop arrangement)
+        bool hasOrder = true;
+        int order[COL_COUNT] = {};
+        for (int i = 0; i < COL_COUNT; ++i) {
+            wchar_t key[32];
+            wsprintfW(key, L"notelist.col%d_order", i);
+            auto it = settings.find(key);
+            if (it == settings.end()) { hasOrder = false; break; }
+            order[i] = it->second;
+        }
+        if (hasOrder) {
+            ListView_SetColumnOrderArray(m_hListView, COL_COUNT, order);
+        }
     }
 }
 
@@ -1333,6 +1399,15 @@ void NoteListWindow::SaveSettings() {
             wsprintfW(key, L"notelist.col%d_width", i);
             settings[key] = ListView_GetColumnWidth(m_hListView, i);
         }
+
+        // Save column order
+        int order[COL_COUNT] = {};
+        ListView_GetColumnOrderArray(m_hListView, COL_COUNT, order);
+        for (int i = 0; i < COL_COUNT; ++i) {
+            wchar_t key[32];
+            wsprintfW(key, L"notelist.col%d_order", i);
+            settings[key] = order[i];
+        }
     }
 
     Storage::SaveSettings(settings);
@@ -1343,14 +1418,20 @@ void NoteListWindow::SaveSettings() {
 // ============================================================================
 
 void NoteListWindow::SortByColumn(int col) {
+    // Toggle direction if clicking the same column, otherwise reset to ascending
     if (col == m_sortColumn) {
         m_sortAscending = !m_sortAscending;
     } else {
         m_sortColumn = col;
         m_sortAscending = true;
     }
+    ApplyCurrentSort();
+}
 
-    LPARAM sortParam = static_cast<LPARAM>(col) | (m_sortAscending ? 0x10000 : 0);
+void NoteListWindow::ApplyCurrentSort() {
+    if (m_sortColumn < 0 || !m_hListView) return;
+
+    LPARAM sortParam = static_cast<LPARAM>(m_sortColumn) | (m_sortAscending ? 0x10000 : 0);
     ListView_SortItems(m_hListView, CompareFunc, sortParam);
 
     // Update header sort arrows
@@ -1362,7 +1443,7 @@ void NoteListWindow::SortByColumn(int col) {
             hdi.mask = HDI_FORMAT;
             Header_GetItem(hHeader, i, &hdi);
             hdi.fmt &= ~(HDF_SORTUP | HDF_SORTDOWN);
-            if (i == col) {
+            if (i == m_sortColumn) {
                 hdi.fmt |= m_sortAscending ? HDF_SORTUP : HDF_SORTDOWN;
             }
             Header_SetItem(hHeader, i, &hdi);
@@ -1396,10 +1477,13 @@ int CALLBACK NoteListWindow::CompareFunc(LPARAM lp1, LPARAM lp2, LPARAM sortPara
         case COL_FOLDER:
             result = _wcsicmp(n1->folder.c_str(), n2->folder.c_str());
             break;
-        case COL_CREATED:
-            if (n1->createdAt < n2->createdAt) result = -1;
-            else if (n1->createdAt > n2->createdAt) result = 1;
+        case COL_CREATED: {
+            int64_t t1 = n1->modifiedAt > 0 ? n1->modifiedAt : n1->createdAt;
+            int64_t t2 = n2->modifiedAt > 0 ? n2->modifiedAt : n2->createdAt;
+            if (t1 < t2) result = -1;
+            else if (t1 > t2) result = 1;
             break;
+        }
         case COL_HIDDEN:
             result = static_cast<int>(n1->isHidden) - static_cast<int>(n2->isHidden);
             break;
@@ -1548,14 +1632,17 @@ void NoteListWindow::ToggleNoteAlwaysOnTop(uint64_t noteId) {
 // ============================================================================
 
 void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
-    int idx = ListView_GetNextItem(m_hListView, -1, LVNI_SELECTED);
-    if (idx < 0) return;
+    int selCount = ListView_GetSelectedCount(m_hListView);
+    if (selCount <= 0) return;
+    bool multiSelect = (selCount > 1);
 
     HMENU hPopup = CreatePopupMenu();
     if (!hPopup) return;
 
-    AppendMenuW(hPopup, MF_STRING, ID_NL_NOTE_EDIT,   Ls(L"notelist.edit").c_str());
-    AppendMenuW(hPopup, MF_STRING, ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str());
+    // Edit/Rename only for single selection
+    UINT singleFlag = multiSelect ? MF_GRAYED : MF_STRING;
+    AppendMenuW(hPopup, singleFlag, ID_NL_NOTE_EDIT,   Ls(L"notelist.edit").c_str());
+    AppendMenuW(hPopup, singleFlag, ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str());
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
     // "Set Folder" submenu
@@ -1654,6 +1741,17 @@ void NoteListWindow::SetPreviewEnabled(bool enabled) {
     }
 }
 
+void NoteListWindow::SetPreviewPaused(bool paused) {
+    if (paused) {
+        StopPreviewTimer();
+        HidePreviewNote();
+    } else {
+        if (m_previewEnabled && IsVisible()) {
+            StartPreviewTimer();
+        }
+    }
+}
+
 void NoteListWindow::StartPreviewTimer() {
     if (!m_previewTimerActive && m_hwnd) {
         SetTimer(m_hwnd, IDT_PREVIEW, 100, nullptr);
@@ -1673,18 +1771,16 @@ void NoteListWindow::StopPreviewTimer() {
 void NoteListWindow::ShowPreviewNote(uint64_t noteId) {
     auto& app = Application::Get();
 
-    NoteWindow* wnd = nullptr;
+    // Skip preview for notes that are already visible on screen —
+    // moving them to the cursor and back causes distracting flickering
     if (app.IsNoteVisible(noteId)) {
-        // Note already visible - just bring to front and reposition
-        m_previewNoteId = noteId;
-        m_previewWasHidden = false;
-        wnd = app.FindNoteWindow(noteId);
-    } else {
-        // Show the note (it was hidden)
-        wnd = app.ShowNotePreview(noteId);
-        m_previewNoteId = noteId;
-        m_previewWasHidden = true;
+        return;
     }
+
+    // Show the note (it was hidden)
+    NoteWindow* wnd = app.ShowNotePreview(noteId);
+    m_previewNoteId = noteId;
+    m_previewWasHidden = true;
 
     // Position note near cursor
     if (wnd) {
@@ -1700,8 +1796,8 @@ void NoteListWindow::ShowPreviewNote(uint64_t noteId) {
         int noteW = noteRect.right - noteRect.left;
         int noteH = noteRect.bottom - noteRect.top;
 
-        int newX = cursorPt.x;
-        int newY = cursorPt.y;
+        int newX = cursorPt.x + 15;
+        int newY = cursorPt.y + 15;
 
         // Ensure note stays on screen
         HMONITOR hMon = MonitorFromPoint(cursorPt, MONITOR_DEFAULTTONEAREST);
@@ -1760,29 +1856,40 @@ INT_PTR CALLBACK NoteListWindow::InputDlgProc(HWND hwnd, UINT msg, WPARAM wParam
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
             SetWindowTextW(hwnd, data->title.c_str());
 
+            // Compact layout: 250px wide content area
+            int contentW = 250;
+            int margin = 10;
+            int btnW = 75;
+            int btnH = 24;
+            int btnGap = 8;
+
             // Create static label
             CreateWindowExW(0, L"STATIC", data->prompt.c_str(),
                             WS_CHILD | WS_VISIBLE,
-                            10, 10, 280, 20,
+                            margin, 8, contentW, 16,
                             hwnd, nullptr, nullptr, nullptr);
 
             // Create edit control
             HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", data->value.c_str(),
                                           WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                                          10, 35, 280, 24,
+                                          margin, 28, contentW, 22,
                                           hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(100)),
                                           nullptr, nullptr);
 
-            // OK / Cancel buttons
-            CreateWindowExW(0, L"BUTTON", L"OK",
+            // OK / Cancel buttons (right-aligned)
+            int btnY = 58;
+            int cancelX = margin + contentW - btnW;
+            int okX = cancelX - btnGap - btnW;
+
+            CreateWindowExW(0, L"BUTTON", Ls(L"settings.ok").c_str(),
                             WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                            120, 70, 80, 28,
+                            okX, btnY, btnW, btnH,
                             hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)),
                             nullptr, nullptr);
 
-            CreateWindowExW(0, L"BUTTON", L"Cancel",
+            CreateWindowExW(0, L"BUTTON", Ls(L"settings.cancel").c_str(),
                             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                            210, 70, 80, 28,
+                            cancelX, btnY, btnW, btnH,
                             hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
                             nullptr, nullptr);
 
@@ -1848,8 +1955,8 @@ bool NoteListWindow::InputDialog(HWND parent, const std::wstring& prompt,
     } dlg = {};
 
     dlg.tmpl.style = DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU;
-    dlg.tmpl.cx = 200;  // Dialog units
-    dlg.tmpl.cy = 70;
+    dlg.tmpl.cx = 180;  // Dialog units
+    dlg.tmpl.cy = 58;
 
     InputDlgData data;
     data.prompt = prompt;

@@ -115,6 +115,7 @@ private:
     bool     m_dirty        = false;
     bool     m_notesVisible = true;
     bool     m_clickableLinks = true;
+    bool     m_settingsOpen  = false;
     int      m_cascadeX     = 100;
     int      m_cascadeY     = 100;
 

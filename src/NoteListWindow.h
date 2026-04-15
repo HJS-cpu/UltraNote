@@ -20,6 +20,7 @@ public:
 
     void Refresh();
     void SetPreviewEnabled(bool enabled);
+    void SetPreviewPaused(bool paused);
     void FocusSearchField();
 
 private:
@@ -37,7 +38,8 @@ private:
     void LoadSettings();
     void SaveSettings();
 
-    void SortByColumn(int col);
+    void SortByColumn(int col);       // User click: toggles direction
+    void ApplyCurrentSort();           // Re-apply current sort without toggling
     static int CALLBACK CompareFunc(LPARAM lp1, LPARAM lp2, LPARAM sortParam);
 
     void EditSelectedNote();
@@ -100,6 +102,12 @@ private:
     static constexpr int FOLDER_MIN_WIDTH    = 80;
     static constexpr int FOLDER_MAX_WIDTH    = 400;
     static constexpr int FOLDER_DEFAULT_WIDTH = 150;
+
+    // Header click tracking (to ignore spurious WM_LBUTTONUP without prior WM_LBUTTONDOWN)
+    bool     m_headerMouseDown    = false;
+
+    // Cached display settings (refreshed on Refresh/settings change)
+    bool     m_zebraStriping      = false;
 
     // Preview state
     bool     m_previewEnabled     = false;

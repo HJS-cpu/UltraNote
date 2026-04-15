@@ -1,7 +1,7 @@
 #pragma once
 
 // Version
-#define ULTRANOTE_VERSION       L"v0.8 Alpha"
+#define ULTRANOTE_VERSION       L"v0.9 Beta"
 
 // Icons
 #define IDI_APP                 101
@@ -129,6 +129,10 @@
 // Initial text insert menu (variable picker)
 #define ID_INITTEXT_BASE        560
 #define ID_INITTEXT_MAX         589
+
+// Tab 5: Note List settings
+#define IDC_DATE_FORMAT         600
+#define IDC_ZEBRA_STRIPING      601
 
 // Folder management
 #define ID_NL_FOLDER_NEW        240

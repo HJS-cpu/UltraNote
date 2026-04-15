@@ -53,6 +53,10 @@ struct SettingsData {
     int      cascadeReset       = 500;
     std::wstring defaultFolder;
     std::wstring initialText;
+
+    // Note List (Tab 5)
+    int      dateFormat         = 0;   // 0 = YYYY-MM-DD HH:MM, 1 = DD.MM.YYYY HH:MM
+    bool     zebraStriping      = false;
 };
 
 class SettingsDialog {
@@ -79,6 +83,7 @@ private:
     void CreateKeyboardTab(HWND hwnd);
     void CreateGeneralTab(HWND hwnd);
     void CreateMiscTab(HWND hwnd);
+    void CreateNoteListTab(HWND hwnd);
 
     // Tab switching
     void ShowTab(int index);
@@ -106,7 +111,7 @@ private:
     int  m_currentTab = 0;
 
     // All child controls per tab (for show/hide)
-    std::vector<HWND> m_tabControls[4];
+    std::vector<HWND> m_tabControls[5];
 
     // Current working copy of settings
     SettingsData m_data;

@@ -38,7 +38,7 @@ notelist.new_note=&New Note
 notelist.edit=&Edit
 notelist.delete=&Delete
 notelist.col_text=Note
-notelist.col_created=Created
+notelist.col_created=Last Modified
 notelist.tb_new=New Note
 notelist.tb_edit=Edit
 notelist.tb_delete=Delete
@@ -69,6 +69,7 @@ confirm.delete_multi=Delete %d notes?
 
 app.already_running=UltraNote is already running.
 note.empty=(empty)
+note.untitled=(Untitled)
 
 settings.title=UltraNote - Settings
 settings.ok=OK
@@ -80,6 +81,10 @@ settings.tab_layout=Layout
 settings.tab_keyboard=Keyboard
 settings.tab_general=General
 settings.tab_misc=Misc
+settings.tab_notelist=Note List
+
+settings.date_format=Date format:
+settings.zebra_striping=Alternating row colors (zebra striping)
 
 settings.bg_color=Background color:
 settings.text_color=Text color:

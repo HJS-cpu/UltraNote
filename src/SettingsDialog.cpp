@@ -96,6 +96,9 @@ SettingsData SettingsDialog::LoadFromStorage() {
     d.defaultFolder  = getStr(L"newnote.folder", L"");
     d.initialText    = getStr(L"newnote.initialText", L"");
 
+    d.dateFormat     = getInt(L"notelist.dateFormat", 0);
+    d.zebraStriping  = getInt(L"notelist.zebra", 0) != 0;
+
     for (int i = 0; i < SC_COUNT; ++i) {
         d.shortcuts[i] = static_cast<WORD>(getInt(s_shortcutDefs[i].settingsKey,
                                                    s_shortcutDefs[i].defaultHotkey));
@@ -130,6 +133,9 @@ void SettingsDialog::SaveToStorage(const SettingsData& data) {
     intS[L"newnote.cascade_reset"] = data.cascadeReset;
     strS[L"newnote.folder"]        = data.defaultFolder;
     strS[L"newnote.initialText"]  = data.initialText;
+
+    intS[L"notelist.dateFormat"]   = data.dateFormat;
+    intS[L"notelist.zebra"]        = data.zebraStriping ? 1 : 0;
 
     for (int i = 0; i < SC_COUNT; ++i) {
         intS[s_shortcutDefs[i].settingsKey] = data.shortcuts[i];
@@ -382,9 +388,10 @@ void SettingsDialog::OnInitDialog(HWND hwnd) {
     CreateKeyboardTab(hwnd);
     CreateGeneralTab(hwnd);
     CreateMiscTab(hwnd);
+    CreateNoteListTab(hwnd);
 
     // Apply font to all tab controls
-    for (int t = 0; t < 4; ++t) {
+    for (int t = 0; t < 5; ++t) {
         for (HWND h : m_tabControls[t]) {
             SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
         }
@@ -415,9 +422,10 @@ void SettingsDialog::CreateTabs(HWND hwnd) {
 
     const wchar_t* tabKeys[] = {
         L"settings.tab_layout", L"settings.tab_keyboard",
-        L"settings.tab_general", L"settings.tab_misc"
+        L"settings.tab_general", L"settings.tab_misc",
+        L"settings.tab_notelist"
     };
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
         TCITEMW tie = {};
         tie.mask = TCIF_TEXT;
         tie.pszText = const_cast<wchar_t*>(Ls(tabKeys[i]).c_str());
@@ -963,11 +971,56 @@ void SettingsDialog::CreateMiscTab(HWND hwnd) {
 }
 
 // ============================================================================
+// Tab 5: Note List
+// ============================================================================
+
+void SettingsDialog::CreateNoteListTab(HWND hwnd) {
+    RECT dr = GetTabDisplayRect(m_hTab);
+    MapWindowPoints(m_hTab, hwnd, reinterpret_cast<POINT*>(&dr), 2);
+
+    int x = dr.left + 12;
+    int y = dr.top + 12;
+    int labelW = 110;
+    int comboW = 120;
+    int rowH = 26;
+
+    // Date format label
+    HWND hLabel = CreateWindowExW(0, L"STATIC",
+        Ls(L"settings.date_format").c_str(),
+        WS_CHILD | SS_LEFT,
+        x, y + 2, labelW, 18,
+        hwnd, nullptr, nullptr, nullptr);
+    m_tabControls[4].push_back(hLabel);
+
+    // Date format combo
+    HWND hCombo = CreateWindowExW(0, L"COMBOBOX", nullptr,
+        WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL,
+        x + labelW + 8, y, comboW, 200,
+        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_DATE_FORMAT)),
+        nullptr, nullptr);
+    SendMessageW(hCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"2026-04-15 09:15"));
+    SendMessageW(hCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"15.04.2026 09:15"));
+    SendMessageW(hCombo, CB_SETCURSEL, m_data.dateFormat, 0);
+    m_tabControls[4].push_back(hCombo);
+    y += rowH + 8;
+
+    // Zebra striping checkbox
+    HWND hCheck = CreateWindowExW(0, L"BUTTON",
+        Ls(L"settings.zebra_striping").c_str(),
+        WS_CHILD | BS_AUTOCHECKBOX,
+        x, y, 300, 18,
+        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_ZEBRA_STRIPING)),
+        nullptr, nullptr);
+    SendMessageW(hCheck, BM_SETCHECK, m_data.zebraStriping ? BST_CHECKED : BST_UNCHECKED, 0);
+    m_tabControls[4].push_back(hCheck);
+}
+
+// ============================================================================
 // Tab switching
 // ============================================================================
 
 void SettingsDialog::ShowTab(int index) {
-    for (int t = 0; t < 4; ++t) {
+    for (int t = 0; t < 5; ++t) {
         int show = (t == index) ? SW_SHOW : SW_HIDE;
         for (HWND h : m_tabControls[t]) {
             ShowWindow(h, show);
@@ -1200,6 +1253,13 @@ void SettingsDialog::ReadFromControls() {
             m_data.initialText.clear();
         }
     }
+
+    // Tab 5: Note List
+    HWND hDateFmt = GetDlgItem(m_hwnd, IDC_DATE_FORMAT);
+    if (hDateFmt) m_data.dateFormat = static_cast<int>(SendMessageW(hDateFmt, CB_GETCURSEL, 0, 0));
+
+    HWND hZebra = GetDlgItem(m_hwnd, IDC_ZEBRA_STRIPING);
+    if (hZebra) m_data.zebraStriping = (SendMessageW(hZebra, BM_GETCHECK, 0, 0) == BST_CHECKED);
 }
 
 // ============================================================================
@@ -1282,7 +1342,7 @@ void SettingsDialog::ShowInsertVariableMenu() {
 
 void SettingsDialog::RebuildControls() {
     // Destroy all tab-page controls
-    for (int t = 0; t < 4; ++t) {
+    for (int t = 0; t < 5; ++t) {
         for (HWND h : m_tabControls[t]) {
             DestroyWindow(h);
         }

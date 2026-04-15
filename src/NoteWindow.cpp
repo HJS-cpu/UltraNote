@@ -763,26 +763,31 @@ void NoteWindow::EnterEditMode() {
         m_hwnd, nullptr, m_hInst, nullptr
     );
 
-    // Set font and remove internal edit margins so text doesn't shift
+    // Set font using window DC for consistent DPI-aware metrics (must match PaintText)
+    HDC hdc = GetDC(m_hwnd);
     HFONT hFont = CreateFontFromParams(m_data->layout.fontFace,
                                         m_data->layout.fontSizePts,
                                         m_data->layout.fontBold,
-                                        m_data->layout.fontItalic);
+                                        m_data->layout.fontItalic, hdc);
+    ReleaseDC(m_hwnd, hdc);
     SendMessageW(m_hEditCtrl, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+    // Remove internal edit margins so text doesn't shift vs. owner-draw rendering
     SendMessageW(m_hEditCtrl, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(0, 0));
 
     // Subclass for CTRL+ENTER and ESC
     SetWindowSubclass(m_hEditCtrl, EditSubclassProc, EDIT_SUBCLASS_ID,
                       reinterpret_cast<DWORD_PTR>(this));
 
-    // Position cursor at %%p marker or select all text
+    // Position cursor at %%p marker or at end of text (no select-all)
     if (m_data->cursorPos >= 0) {
         SendMessageW(m_hEditCtrl, EM_SETSEL,
                      static_cast<WPARAM>(m_data->cursorPos),
                      static_cast<LPARAM>(m_data->cursorPos));
         m_data->cursorPos = -1;  // One-time positioning
     } else {
-        SendMessageW(m_hEditCtrl, EM_SETSEL, 0, -1);
+        // Place cursor at end instead of selecting all text
+        int textLen = GetWindowTextLengthW(m_hEditCtrl);
+        SendMessageW(m_hEditCtrl, EM_SETSEL, textLen, textLen);
     }
     SetFocus(m_hEditCtrl);
 

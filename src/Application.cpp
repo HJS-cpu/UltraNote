@@ -906,7 +906,22 @@ void Application::RenameNote(uint64_t noteId, const std::wstring& newTitle) {
 // ============================================================================
 
 void Application::ShowSettingsDialog() {
+    // Prevent multiple instances
+    if (m_settingsOpen) return;
+    m_settingsOpen = true;
+
+    // Pause preview in note list to prevent it from interfering with the dialog
+    if (m_noteListWindow) {
+        m_noteListWindow->SetPreviewPaused(true);
+    }
+
     SettingsDialog::Show(m_hAppWnd);
+
+    // Resume preview after dialog closes
+    if (m_noteListWindow) {
+        m_noteListWindow->SetPreviewPaused(false);
+    }
+    m_settingsOpen = false;
 }
 
 void Application::ApplySettings() {
@@ -949,6 +964,9 @@ void Application::ApplySettings() {
     if (m_noteListWindow) {
         m_noteListWindow->SetPreviewEnabled(data.previewEnabled);
     }
+
+    // Refresh note list to apply date format, zebra striping etc.
+    RefreshNoteList();
 
     // Register global hotkeys
     RegisterGlobalHotkeys();
