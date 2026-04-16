@@ -1,7 +1,7 @@
 #pragma once
 
 // Version
-#define ULTRANOTE_VERSION       L"v0.9 Beta"
+#define ULTRANOTE_VERSION       L"v1.0.0"
 
 // Icons
 #define IDI_APP                 101

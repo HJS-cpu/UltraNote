@@ -446,9 +446,15 @@ void NoteWindow::PaintText(HDC hdc, const RECT& rc) {
         rc.bottom - TEXT_PADDING - abHeight
     };
 
-    if (Application::Get().AreClickableLinksEnabled()) {
+    bool linksEnabled = Application::Get().AreClickableLinksEnabled();
+    bool hasUrls = linksEnabled && !FindUrls(m_data->text).empty();
+    bool hasHighlight = !Application::Get().GetSearchHighlight().empty();
+
+    if (hasUrls || hasHighlight) {
         PaintTextWithLinks(hdc, textRc);
     } else {
+        // Fast path: DrawTextW with DT_EDITCONTROL matches EDIT control rendering
+        // exactly, avoiding sub-pixel drift between edit and view modes.
         m_urlRects.clear();
         SetTextColor(hdc, m_data->layout.textColor);
         DrawTextW(hdc, m_data->text.c_str(), static_cast<int>(m_data->text.size()),
@@ -463,6 +469,16 @@ void NoteWindow::PaintTextWithLinks(HDC hdc, const RECT& textRc) {
 
     const std::wstring& text = m_data->text;
     std::vector<UrlSpan> urls = FindUrls(text);
+
+    // Lowercase copy of text for case-insensitive highlight matching
+    const std::wstring& hlTerm = Application::Get().GetSearchHighlight();
+    std::wstring textLower, hlLower;
+    if (!hlTerm.empty()) {
+        textLower.resize(text.size());
+        for (size_t i = 0; i < text.size(); ++i) textLower[i] = towlower(text[i]);
+        hlLower.resize(hlTerm.size());
+        for (size_t i = 0; i < hlTerm.size(); ++i) hlLower[i] = towlower(hlTerm[i]);
+    }
 
     TEXTMETRICW tm;
     GetTextMetricsW(hdc, &tm);
@@ -505,6 +521,10 @@ void NoteWindow::PaintTextWithLinks(HDC hdc, const RECT& textRc) {
     HRGN hClip = CreateRectRgn(textRc.left, textRc.top, textRc.right, textRc.bottom);
     SelectClipRgn(hdc, hClip);
 
+    // Use TA_UPDATECP so consecutive TextOut calls continue from GDI's internal
+    // current position, avoiding sub-pixel drift from manual curX accumulation.
+    UINT oldAlign = SetTextAlign(hdc, TA_UPDATECP | TA_LEFT | TA_TOP);
+
     while (pos < textLen && curY + lineHeight <= textRc.bottom) {
         // Find end of current paragraph (up to \r\n or \n)
         int paraEnd = pos;
@@ -545,45 +565,62 @@ void NoteWindow::PaintTextWithLinks(HDC hdc, const RECT& textRc) {
                 }
             }
 
-            // Render this visual line segment by segment
-            int curX = textRc.left;
+            // Draw highlight rectangles behind matching search term (before text)
+            if (!hlLower.empty() && hlLower.size() <= static_cast<size_t>(visualLineEnd - lineStart)) {
+                int searchFrom = lineStart;
+                while (searchFrom + static_cast<int>(hlLower.size()) <= visualLineEnd) {
+                    size_t found = textLower.find(hlLower, searchFrom);
+                    if (found == std::wstring::npos ||
+                        static_cast<int>(found) + static_cast<int>(hlLower.size()) > visualLineEnd)
+                        break;
+                    int mStart = static_cast<int>(found);
+                    int mEnd = mStart + static_cast<int>(hlLower.size());
+
+                    SIZE szPre = {}, szMatch = {};
+                    if (mStart > lineStart)
+                        GetTextExtentPoint32W(hdc, &text[lineStart],
+                                              mStart - lineStart, &szPre);
+                    GetTextExtentPoint32W(hdc, &text[mStart], mEnd - mStart, &szMatch);
+
+                    RECT hlRc = {
+                        textRc.left + szPre.cx, curY,
+                        textRc.left + szPre.cx + szMatch.cx, curY + lineHeight
+                    };
+                    HBRUSH hHlBrush = CreateSolidBrush(RGB(255, 165, 0));
+                    FillRect(hdc, &hlRc, hHlBrush);
+                    DeleteObject(hHlBrush);
+
+                    searchFrom = mEnd;
+                }
+            }
+
+            // Position GDI current point at start of visual line
+            MoveToEx(hdc, textRc.left, curY, nullptr);
             int segStart = lineStart;
 
             while (segStart < visualLineEnd) {
                 const UrlSpan* activeUrl = findUrl(segStart);
+                int segEnd = activeUrl
+                    ? (std::min)(activeUrl->end, visualLineEnd)
+                    : nextUrlStart(segStart, visualLineEnd);
+                int segLen = segEnd - segStart;
 
-                int segEnd;
+                POINT cpBefore;
+                GetCurrentPositionEx(hdc, &cpBefore);
+
                 if (activeUrl) {
-                    segEnd = (std::min)(activeUrl->end, visualLineEnd);
-
-                    // URL style: blue + underline
                     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, hUrlFont));
                     SetTextColor(hdc, RGB(0, 0, 238));
-
-                    int segLen = segEnd - segStart;
-                    SIZE segSize;
-                    GetTextExtentPoint32W(hdc, &text[segStart], segLen, &segSize);
-                    TextOutW(hdc, curX, curY, &text[segStart], segLen);
-
-                    // Store URL rect for hit-testing
-                    RECT urlRect = { curX, curY, curX + segSize.cx, curY + lineHeight };
-                    m_urlRects.push_back({ urlRect, activeUrl->url });
-
-                    curX += segSize.cx;
-
+                    TextOutW(hdc, 0, 0, &text[segStart], segLen);
                     SelectObject(hdc, oldFont);
+
+                    POINT cpAfter;
+                    GetCurrentPositionEx(hdc, &cpAfter);
+                    RECT urlRect = { cpBefore.x, curY, cpAfter.x, curY + lineHeight };
+                    m_urlRects.push_back({ urlRect, activeUrl->url });
                 } else {
-                    segEnd = nextUrlStart(segStart, visualLineEnd);
-
-                    // Normal text style
                     SetTextColor(hdc, m_data->layout.textColor);
-
-                    int segLen = segEnd - segStart;
-                    SIZE segSize;
-                    GetTextExtentPoint32W(hdc, &text[segStart], segLen, &segSize);
-                    TextOutW(hdc, curX, curY, &text[segStart], segLen);
-
-                    curX += segSize.cx;
+                    TextOutW(hdc, 0, 0, &text[segStart], segLen);
                 }
 
                 segStart = segEnd;
@@ -602,6 +639,8 @@ void NoteWindow::PaintTextWithLinks(HDC hdc, const RECT& textRc) {
         if (pos < textLen && text[pos] == L'\r') ++pos;
         if (pos < textLen && text[pos] == L'\n') ++pos;
     }
+
+    SetTextAlign(hdc, oldAlign);
 
     // Restore clip region
     SelectClipRgn(hdc, nullptr);
@@ -778,8 +817,24 @@ void NoteWindow::EnterEditMode() {
     SetWindowSubclass(m_hEditCtrl, EditSubclassProc, EDIT_SUBCLASS_ID,
                       reinterpret_cast<DWORD_PTR>(this));
 
-    // Position cursor at %%p marker or at end of text (no select-all)
-    if (m_data->cursorPos >= 0) {
+    // Position cursor: active search highlight wins, else %%p marker, else end.
+    const std::wstring& hlTerm = Application::Get().GetSearchHighlight();
+    int hlMatchPos = -1;
+    if (!hlTerm.empty()) {
+        std::wstring textLower(m_data->text.size(), L'\0');
+        std::wstring hlLower(hlTerm.size(), L'\0');
+        for (size_t i = 0; i < m_data->text.size(); ++i) textLower[i] = towlower(m_data->text[i]);
+        for (size_t i = 0; i < hlTerm.size(); ++i) hlLower[i] = towlower(hlTerm[i]);
+        size_t found = textLower.find(hlLower);
+        if (found != std::wstring::npos) hlMatchPos = static_cast<int>(found);
+    }
+
+    if (hlMatchPos >= 0) {
+        SendMessageW(m_hEditCtrl, EM_SETSEL,
+                     static_cast<WPARAM>(hlMatchPos),
+                     static_cast<LPARAM>(hlMatchPos + hlTerm.size()));
+        SendMessageW(m_hEditCtrl, EM_SCROLLCARET, 0, 0);
+    } else if (m_data->cursorPos >= 0) {
         SendMessageW(m_hEditCtrl, EM_SETSEL,
                      static_cast<WPARAM>(m_data->cursorPos),
                      static_cast<LPARAM>(m_data->cursorPos));
@@ -1080,6 +1135,7 @@ void NoteWindow::HandleMenuCommand(int cmd) {
             m_data->isHidden = true;
             Show(false);
             NotifyChanged();
+            Application::Get().RefreshNoteList();
             break;
 
         case ID_NOTE_COPY:

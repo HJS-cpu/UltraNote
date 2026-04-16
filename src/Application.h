@@ -55,7 +55,11 @@ public:
     void HideAllNotes();
 
     // Bring a note to front and optionally enter edit mode
-    void BringNoteToFront(uint64_t id);
+    void BringNoteToFront(uint64_t id, bool enterEdit = true);
+
+    // Search highlight (shown in all note windows while active)
+    void SetSearchHighlight(const std::wstring& term);
+    const std::wstring& GetSearchHighlight() const { return m_searchHighlight; }
 
     // Preview: show/hide note without entering edit mode
     NoteWindow* ShowNotePreview(uint64_t id);
@@ -118,6 +122,8 @@ private:
     bool     m_settingsOpen  = false;
     int      m_cascadeX     = 100;
     int      m_cascadeY     = 100;
+
+    std::wstring m_searchHighlight;
 
     // Cached menu bitmaps (shell stock icon id -> HBITMAP)
     std::unordered_map<int, HBITMAP> m_menuBitmaps;

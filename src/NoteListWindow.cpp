@@ -178,6 +178,7 @@ void NoteListWindow::Show() {
 void NoteListWindow::Hide() {
     StopPreviewTimer();
     HidePreviewNote();
+    Application::Get().SetSearchHighlight(L"");
     ShowWindow(m_hwnd, SW_HIDE);
 }
 
@@ -226,6 +227,7 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 } else {
                     m_searchQuery.clear();
                 }
+                Application::Get().SetSearchHighlight(m_searchQuery);
                 PopulateList();
                 ApplyCurrentSort();
                 return 0;
@@ -377,17 +379,10 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                             lvItem.iItem = hitIdx;
                             ListView_GetItem(m_hListView, &lvItem);
                             uint64_t noteId = static_cast<uint64_t>(lvItem.lParam);
-                            NoteData* note = Application::Get().FindNoteData(noteId);
-                            if (note) {
-                                if (htInfo.iSubItem == COL_HIDDEN) {
-                                    ToggleNoteHidden(noteId);
-                                    ListView_SetItemText(m_hListView, hitIdx, COL_HIDDEN,
-                                                         const_cast<LPWSTR>(note->isHidden ? L"\u2611" : L"\u2610"));
-                                } else {
-                                    ToggleNoteAlwaysOnTop(noteId);
-                                    ListView_SetItemText(m_hListView, hitIdx, COL_ONTOP,
-                                                         const_cast<LPWSTR>(note->layout.alwaysOnTop ? L"\u2611" : L"\u2610"));
-                                }
+                            if (htInfo.iSubItem == COL_HIDDEN) {
+                                ToggleNoteHidden(noteId);
+                            } else {
+                                ToggleNoteAlwaysOnTop(noteId);
                             }
                         }
                         break;
@@ -1518,7 +1513,9 @@ void NoteListWindow::EditSelectedNote() {
         m_previewNoteIdx = -1;
     }
 
-    Application::Get().BringNoteToFront(id);
+    // Active search: skip edit mode so highlighted matches stay visible
+    bool enterEdit = m_searchQuery.empty();
+    Application::Get().BringNoteToFront(id, enterEdit);
 }
 
 void NoteListWindow::DeleteSelectedNotes() {
@@ -1601,7 +1598,7 @@ void NoteListWindow::ToggleNoteHidden(uint64_t noteId) {
     if (!note) return;
 
     if (note->isHidden) {
-        // Show the note
+        // Show the note (BringNoteToFront already triggers RefreshNoteList)
         app.BringNoteToFront(noteId);
     } else {
         // Hide the note
@@ -1609,6 +1606,7 @@ void NoteListWindow::ToggleNoteHidden(uint64_t noteId) {
         NoteWindow* wnd = app.FindNoteWindow(noteId);
         if (wnd) wnd->Show(false);
         app.MarkDirty();
+        Refresh();
     }
 }
 
@@ -1625,6 +1623,7 @@ void NoteListWindow::ToggleNoteAlwaysOnTop(uint64_t noteId) {
                      0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     }
     app.MarkDirty();
+    Refresh();
 }
 
 // ============================================================================
@@ -1903,16 +1902,29 @@ INT_PTR CALLBACK NoteListWindow::InputDlgProc(HWND hwnd, UINT msg, WPARAM wParam
             SendMessageW(hEdit, EM_SETSEL, 0, -1);
             SetFocus(hEdit);
 
-            // Center on parent
+            // Resize window to exactly fit the pixel-sized controls (dialog
+            // template uses DLU which scales with DPI/font while controls are
+            // in pixels, leaving extra empty space on the right otherwise).
+            int clientW = margin + contentW + margin;
+            int clientH = btnY + btnH + margin;
+            RECT wrc = { 0, 0, clientW, clientH };
+            DWORD style   = static_cast<DWORD>(GetWindowLongW(hwnd, GWL_STYLE));
+            DWORD exStyle = static_cast<DWORD>(GetWindowLongW(hwnd, GWL_EXSTYLE));
+            AdjustWindowRectEx(&wrc, style, FALSE, exStyle);
+            int winW = wrc.right - wrc.left;
+            int winH = wrc.bottom - wrc.top;
+
+            // Center on parent with new size
             HWND hParent = GetParent(hwnd);
+            int x = 0, y = 0;
             if (hParent) {
-                RECT rcParent, rcDlg;
+                RECT rcParent;
                 GetWindowRect(hParent, &rcParent);
-                GetWindowRect(hwnd, &rcDlg);
-                int x = rcParent.left + ((rcParent.right - rcParent.left) - (rcDlg.right - rcDlg.left)) / 2;
-                int y = rcParent.top + ((rcParent.bottom - rcParent.top) - (rcDlg.bottom - rcDlg.top)) / 2;
-                SetWindowPos(hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+                x = rcParent.left + ((rcParent.right - rcParent.left) - winW) / 2;
+                y = rcParent.top + ((rcParent.bottom - rcParent.top) - winH) / 2;
             }
+            SetWindowPos(hwnd, nullptr, x, y, winW, winH,
+                         (hParent ? 0 : SWP_NOMOVE) | SWP_NOZORDER);
 
             return FALSE; // We set focus manually
         }

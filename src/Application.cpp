@@ -697,6 +697,7 @@ void Application::ShowAllNotes() {
         }
     }
     m_dirty = true;
+    RefreshNoteList();
 }
 
 void Application::HideAllNotes() {
@@ -709,13 +710,15 @@ void Application::HideAllNotes() {
         }
     }
     m_dirty = true;
+    RefreshNoteList();
 }
 
 // ============================================================================
 // Bring note to front
 // ============================================================================
 
-void Application::BringNoteToFront(uint64_t id) {
+void Application::BringNoteToFront(uint64_t id, bool enterEdit) {
+    bool hiddenChanged = false;
     auto it = m_noteWindows.find(id);
     if (it == m_noteWindows.end()) {
         // Note has no window (hidden) - create one
@@ -725,12 +728,24 @@ void Application::BringNoteToFront(uint64_t id) {
         CreateNoteWindow(data);
         it = m_noteWindows.find(id);
         m_dirty = true;
+        hiddenChanged = true;
     } else if (it->second->GetData()->isHidden) {
         it->second->GetData()->isHidden = false;
         m_dirty = true;
+        hiddenChanged = true;
     }
     it->second->BringToFront();
-    it->second->EnterEditMode();
+    if (enterEdit) it->second->EnterEditMode();
+    if (hiddenChanged) RefreshNoteList();
+}
+
+void Application::SetSearchHighlight(const std::wstring& term) {
+    if (m_searchHighlight == term) return;
+    m_searchHighlight = term;
+    for (auto& kv : m_noteWindows) {
+        HWND hwnd = kv.second->GetHwnd();
+        if (hwnd) InvalidateRect(hwnd, nullptr, FALSE);
+    }
 }
 
 // ============================================================================
