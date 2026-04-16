@@ -25,13 +25,15 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 
 | Feature | Description |
 |---------|-------------|
-| **Overview** | Sortable list of all notes with title, text preview, folder, and timestamps |
-| **Quick Actions** | Toggle visibility and always-on-top directly via checkboxes |
+| **Overview** | Sortable list of all notes with title, text preview, folder, and last modified timestamp |
+| **Quick Actions** | Toggle visibility and always-on-top directly via checkboxes — list updates instantly |
 | **Hover Preview** | Hover over a note entry to preview it on screen |
 | **Toolbar** | New, Edit, Delete, Show All, Hide All with icon toolbar |
-| **Context Menu** | Right-click for rename, folder assignment, and more |
+| **Context Menu** | Right-click for rename, folder assignment, and more; multi-select aware |
 | **Status Bar** | Shows total / filtered note count |
-| **Search** | Live search across note titles and text |
+| **Search & Highlight** | Live search across note titles and text; matches highlighted in orange inside opened notes, first match auto-selected on edit |
+| **Column Reordering** | Drag & drop columns in the header, order persists across sessions |
+| **Zebra Striping** | Optional alternating row background (configurable) |
 
 ### Settings Dialog
 
@@ -41,6 +43,7 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 | **Keyboard** | Customize all shortcuts (2 local + 2 global hotkeys) |
 | **General** | Autosave interval, delete confirmation, preview toggle & delay, clickable links toggle, tray behavior, language |
 | **Misc** | New note position, cascade step/reset, default folder, initial text with strftime variables |
+| **Note List** | Date format (YYYY-MM-DD or DD.MM.YYYY), zebra striping toggle |
 
 ### Localization
 
@@ -94,7 +97,7 @@ UltraNote/
 │   ├── Application.h/cpp     # Singleton: tray, note lifecycle, hotkeys
 │   ├── NoteWindow.h/cpp      # Sticky note window: owner-draw, drag, resize
 │   ├── NoteListWindow.h/cpp  # Note list: toolbar, ListView, sorting
-│   ├── SettingsDialog.h/cpp  # Settings dialog with 4 tabs
+│   ├── SettingsDialog.h/cpp  # Settings dialog with 5 tabs
 │   ├── Storage.h/cpp         # JSON persistence (hand-written parser)
 │   ├── Localization.h/cpp    # INI-based language system
 │   ├── Note.h                # Data model (NoteData, NoteLayout)
@@ -144,8 +147,11 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 - [x] **Phase 2.5** — Search function in note list
 - [x] **Phase 3** — Custom icons, stability fixes, selection overhaul, hotkey cleanup, status bar
 - [x] **Phase 3.9** — Attachment bar (drag & drop file references), initial text variables
-- [x] **Phase 4** — Clickable URL detection, version 0.8
-- [ ] **Phase 5** — Alarm system, print support, minimize/restore
+- [x] **Phase 4** — Clickable URL detection
+- [x] **Phase 4.1** — Header sorting fix + sort arrows
+- [x] **Phase 4.2** — Note list overhaul: column reordering, date format, zebra striping, compact rename dialog
+- [x] **Phase 5** — v1.0.0: Text rendering fix, instant hidden-state sync, search highlighting
+- [ ] **Phase 6** — Alarm system, print support, minimize/restore
 
 ---
 
@@ -157,6 +163,22 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 ---
 
 ## Changelog
+
+### v1.0.0 (2026-04-16)
+- **Search highlighting:** matches from note list search are highlighted in orange across all open notes; first match auto-selected when entering edit mode
+- **Text rendering fix:** eliminated sub-pixel drift between edit and view modes — characters no longer shift when leaving edit mode
+- **Instant hidden-state sync:** note list checkbox updates immediately on any visibility change (toolbar, context menu, or list click)
+- **Compact rename dialog:** window now sizes exactly to its controls regardless of DPI
+
+### v0.9 Beta (2026-04-15)
+- New Settings tab **Note List** with date format selector and zebra striping toggle
+- Column reordering via drag & drop, persisted across sessions
+- "Last Modified" column replacing "Created"
+- Multi-select aware context menu (Edit/Rename grayed for multi-select)
+- Compact rename dialog (180x58 DLU, right-aligned buttons)
+- Preview no longer jumps already-visible notes; pauses when settings dialog is open
+- Header sort arrows (up/down) reliable after first click
+- Various sort and focus fixes
 
 ### v0.8 Alpha (2026-04-14)
 - Clickable URL detection in notes (http, https, ftp, www) — blue underlined links with hand cursor
