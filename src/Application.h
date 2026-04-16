@@ -84,6 +84,7 @@ public:
 
     HINSTANCE GetInstance() const { return m_hInst; }
     bool      AreClickableLinksEnabled() const { return m_clickableLinks; }
+    COLORREF  GetSearchHighlightColor() const { return m_searchHlColor; }
     HBITMAP   GetMenuBitmap(SHSTOCKICONID id);
     HBITMAP   GetResourceBitmap(UINT iconResId);
 
@@ -119,6 +120,7 @@ private:
     bool     m_dirty        = false;
     bool     m_notesVisible = true;
     bool     m_clickableLinks = true;
+    COLORREF m_searchHlColor  = RGB(255, 165, 0);
     bool     m_settingsOpen  = false;
     int      m_cascadeX     = 100;
     int      m_cascadeY     = 100;

@@ -318,8 +318,8 @@ void Application::ShowAboutDialog(HWND hParent) {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(p);
     dlg->style = DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU;
     dlg->cdit = 3;  // static text, link static, OK button
-    dlg->cx = 210;
-    dlg->cy = 95;
+    dlg->cx = 170;
+    dlg->cy = 80;
     p += sizeof(DLGTEMPLATE);
 
     // Menu (none), Class (default)
@@ -337,7 +337,7 @@ void Application::ShowAboutDialog(HWND hParent) {
     // Control 1: Static text (version + copyright)
     auto* item1 = reinterpret_cast<DLGITEMTEMPLATE*>(p);
     item1->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
-    item1->x = 10; item1->y = 10; item1->cx = 190; item1->cy = 36;
+    item1->x = 10; item1->y = 8; item1->cx = 150; item1->cy = 30;
     item1->id = 1000;
     p += sizeof(DLGITEMTEMPLATE);
     *reinterpret_cast<WORD*>(p) = 0xFFFF; p += sizeof(WORD);
@@ -352,7 +352,7 @@ void Application::ShowAboutDialog(HWND hParent) {
     // Control 2: Static label as clickable link (SS_CENTER | SS_NOTIFY)
     auto* item2 = reinterpret_cast<DLGITEMTEMPLATE*>(p);
     item2->style = WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOTIFY;
-    item2->x = 10; item2->y = 52; item2->cx = 190; item2->cy = 10;
+    item2->x = 10; item2->y = 42; item2->cx = 150; item2->cy = 10;
     item2->id = 1001;
     p += sizeof(DLGITEMTEMPLATE);
     *reinterpret_cast<WORD*>(p) = 0xFFFF; p += sizeof(WORD);
@@ -364,7 +364,7 @@ void Application::ShowAboutDialog(HWND hParent) {
     // Control 3: OK button
     auto* item3 = reinterpret_cast<DLGITEMTEMPLATE*>(p);
     item3->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP;
-    item3->x = 80; item3->y = 73; item3->cx = 50; item3->cy = 14;
+    item3->x = 60; item3->y = 60; item3->cx = 50; item3->cy = 14;
     item3->id = IDOK;
     p += sizeof(DLGITEMTEMPLATE);
     *reinterpret_cast<WORD*>(p) = 0xFFFF; p += sizeof(WORD);
@@ -974,6 +974,9 @@ void Application::ApplySettings() {
 
     // Apply clickable links setting
     m_clickableLinks = data.clickableLinks;
+
+    // Apply search highlight color
+    m_searchHlColor = data.searchHlColor;
 
     // Apply preview setting to note list
     if (m_noteListWindow) {

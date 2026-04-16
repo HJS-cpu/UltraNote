@@ -76,6 +76,7 @@ SettingsData SettingsDialog::LoadFromStorage() {
     d.bgColor       = static_cast<COLORREF>(getInt(L"default.bgColor", static_cast<int>(RGB(255, 255, 153))));
     d.textColor     = static_cast<COLORREF>(getInt(L"default.textColor", static_cast<int>(RGB(0, 0, 0))));
     d.borderColor   = static_cast<COLORREF>(getInt(L"default.borderColor", static_cast<int>(RGB(200, 200, 80))));
+    d.searchHlColor = static_cast<COLORREF>(getInt(L"display.searchHlColor", static_cast<int>(RGB(255, 165, 0))));
     d.fontFace      = getStr(L"default.fontFace", L"Arial");
     d.fontSize      = getInt(L"default.fontSize", 10);
     d.fontBold      = getInt(L"default.fontBold", 0) != 0;
@@ -114,6 +115,7 @@ void SettingsDialog::SaveToStorage(const SettingsData& data) {
     intS[L"default.bgColor"]       = static_cast<int>(data.bgColor);
     intS[L"default.textColor"]     = static_cast<int>(data.textColor);
     intS[L"default.borderColor"]   = static_cast<int>(data.borderColor);
+    intS[L"display.searchHlColor"] = static_cast<int>(data.searchHlColor);
     strS[L"default.fontFace"]      = data.fontFace;
     intS[L"default.fontSize"]      = data.fontSize;
     intS[L"default.fontBold"]      = data.fontBold ? 1 : 0;
@@ -227,6 +229,10 @@ INT_PTR CALLBACK SettingsDialog::DlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
                     self->UpdatePreview();
                     return TRUE;
 
+                case IDC_SEARCH_HL_BTN:
+                    self->OnChooseColor(hwnd, self->m_data.searchHlColor, IDC_SEARCH_HL_SWATCH);
+                    return TRUE;
+
                 case IDC_FONT_BTN:
                     self->OnChooseFont(hwnd);
                     self->UpdatePreview();
@@ -289,6 +295,7 @@ INT_PTR CALLBACK SettingsDialog::DlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
             if (dis->CtlID == IDC_BG_COLOR_SWATCH) color = self->m_data.bgColor;
             else if (dis->CtlID == IDC_TEXT_COLOR_SWATCH) color = self->m_data.textColor;
             else if (dis->CtlID == IDC_BORDER_COLOR_SWATCH) color = self->m_data.borderColor;
+            else if (dis->CtlID == IDC_SEARCH_HL_SWATCH) color = self->m_data.searchHlColor;
             else if (dis->CtlID == IDC_LAYOUT_PREVIEW) {
                 // Draw preview box
                 HBRUSH bgBrush = CreateSolidBrush(self->m_data.bgColor);
@@ -485,6 +492,7 @@ void SettingsDialog::CreateLayoutTab(HWND hwnd) {
     addColorRow(L"settings.bg_color", IDC_BG_COLOR_SWATCH, IDC_BG_COLOR_BTN);
     addColorRow(L"settings.text_color", IDC_TEXT_COLOR_SWATCH, IDC_TEXT_COLOR_BTN);
     addColorRow(L"settings.border_color", IDC_BORDER_COLOR_SWATCH, IDC_BORDER_COLOR_BTN);
+    addColorRow(L"settings.search_hl_color", IDC_SEARCH_HL_SWATCH, IDC_SEARCH_HL_BTN);
 
     // Font row
     HWND hFontLabel = CreateWindowExW(0, L"STATIC", Ls(L"settings.font").c_str(),

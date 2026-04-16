@@ -89,6 +89,7 @@ settings.zebra_striping=Alternierende Zeilenfarben (Zebramuster)
 settings.bg_color=Hintergrundfarbe:
 settings.text_color=Textfarbe:
 settings.border_color=Rahmenfarbe:
+settings.search_hl_color=Such-Markierung:
 settings.font=Schriftart:
 settings.preview_label=Vorschau:
 settings.preview_text=Dies ist ein Beispieltext für die Notiz-Vorschau.

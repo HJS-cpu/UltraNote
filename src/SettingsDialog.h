@@ -29,6 +29,7 @@ struct SettingsData {
     COLORREF bgColor        = RGB(255, 255, 153);
     COLORREF textColor      = RGB(0, 0, 0);
     COLORREF borderColor    = RGB(200, 200, 80);
+    COLORREF searchHlColor  = RGB(255, 165, 0);
     std::wstring fontFace   = L"Arial";
     int      fontSize       = 10;
     bool     fontBold       = false;

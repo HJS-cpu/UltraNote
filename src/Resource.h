@@ -134,6 +134,10 @@
 #define IDC_DATE_FORMAT         600
 #define IDC_ZEBRA_STRIPING      601
 
+// Tab 1: Layout (extended)
+#define IDC_SEARCH_HL_SWATCH    602
+#define IDC_SEARCH_HL_BTN       603
+
 // Folder management
 #define ID_NL_FOLDER_NEW        240
 #define ID_NL_FOLDER_RENAME     241

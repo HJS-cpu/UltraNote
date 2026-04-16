@@ -586,7 +586,7 @@ void NoteWindow::PaintTextWithLinks(HDC hdc, const RECT& textRc) {
                         textRc.left + szPre.cx, curY,
                         textRc.left + szPre.cx + szMatch.cx, curY + lineHeight
                     };
-                    HBRUSH hHlBrush = CreateSolidBrush(RGB(255, 165, 0));
+                    HBRUSH hHlBrush = CreateSolidBrush(Application::Get().GetSearchHighlightColor());
                     FillRect(hdc, &hlRc, hHlBrush);
                     DeleteObject(hHlBrush);
 
