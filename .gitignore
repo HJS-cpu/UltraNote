@@ -32,6 +32,9 @@ cmake_install.cmake
 # Project-internal docs (never commit)
 CLAUDE.md
 Projekt.md
+Sortierverhalten.md
+RichEdit-Control.md
+UltraNote-SQLite-Migrationsplan.md
 
 # Local setup docs
 GitLab-Runner-Setup.md
