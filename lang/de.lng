@@ -28,7 +28,14 @@ note.attach_full=Maximale Anzahl Anhänge erreicht (5).
 note.attach_remove=Anhang entfernen
 note.no_folder=(Kein Ordner)
 note.all_folders=Alle Notizen
+note.unfiled=Keine Ordner
 note.enter_title=Notiztitel eingeben:
+note.search=In Notiz &suchen...
+note.find_title=In Notiz suchen
+note.find_label=Suchen nach:
+note.find_case=&Groß-/Kleinschreibung beachten
+note.find_next=&Weiter
+note.find_close=Schließen
 
 notelist.title=UltraNote - Notizliste
 notelist.file=&Datei

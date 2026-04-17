@@ -28,7 +28,14 @@ note.attach_full=Maximum number of attachments reached (5).
 note.attach_remove=Remove Attachment
 note.no_folder=(No Folder)
 note.all_folders=All Notes
+note.unfiled=Unfiled
 note.enter_title=Enter note title:
+note.search=&Find in Note...
+note.find_title=Find in Note
+note.find_label=Find what:
+note.find_case=Match &case
+note.find_next=&Find Next
+note.find_close=Close
 
 notelist.title=UltraNote - Note List
 notelist.file=&File

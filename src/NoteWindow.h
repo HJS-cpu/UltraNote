@@ -4,9 +4,12 @@
 #include <commctrl.h>
 #include <shellapi.h>
 #include <cstdint>
+#include <memory>
 #include <vector>
 #include <string>
 #include "Note.h"
+
+class FindInNoteDialog;
 
 class NoteWindow {
 public:
@@ -28,6 +31,10 @@ public:
     void EnterEditMode();
     void ExitEditMode(bool save);
     bool IsEditing() const { return m_inEditMode; }
+
+    // In-note search (Find Next). Returns true if a match was highlighted.
+    bool FindNextInNote(const std::wstring& term, bool caseSensitive);
+    void OpenFindDialog();
 
     // Offset window position by delta (for multi-select drag)
     void OffsetPosition(int dx, int dy);
@@ -114,6 +121,14 @@ private:
 
     // Attachment icon cache
     std::vector<HICON> m_attachIcons;
+
+    // In-note find dialog (modeless, one per note window)
+    std::unique_ptr<FindInNoteDialog> m_findDialog;
+    // Tracks where the next FindNext should begin. Independent of the
+    // EDIT control's current selection so repeated matches advance reliably.
+    size_t m_findSearchPos = 0;
+    size_t m_findLastMatchStart = std::wstring::npos;
+    size_t m_findLastMatchEnd   = std::wstring::npos;
 
     static constexpr int RESIZE_BORDER = 6;
     static constexpr int MIN_WIDTH     = 80;

@@ -1,11 +1,13 @@
 #include "NoteWindow.h"
 #include "Application.h"
+#include "FindInNoteDialog.h"
 #include "SettingsDialog.h"
 #include "Localization.h"
 #include "Utils.h"
 #include "Resource.h"
 #include <windowsx.h>
 #include <shlwapi.h>
+#include <cwctype>
 #include <ctime>
 
 static const wchar_t* NOTE_WND_CLASS = L"UltraNoteWindow";
@@ -795,7 +797,7 @@ void NoteWindow::EnterEditMode() {
     m_hEditCtrl = CreateWindowExW(
         0, L"EDIT", m_data->text.c_str(),
         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_WANTRETURN |
-        ES_AUTOVSCROLL,
+        ES_AUTOVSCROLL | ES_NOHIDESEL,
         TEXT_PADDING, TEXT_PADDING,
         rc.right - 2 * TEXT_PADDING,
         rc.bottom - 2 * TEXT_PADDING - abHeight,
@@ -812,6 +814,14 @@ void NoteWindow::EnterEditMode() {
     SendMessageW(m_hEditCtrl, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
     // Remove internal edit margins so text doesn't shift vs. owner-draw rendering
     SendMessageW(m_hEditCtrl, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(0, 0));
+    // Force format rect to full client rect so word-wrap width matches DrawText
+    // (EDIT control otherwise reserves implicit caret space at the right edge,
+    //  causing wrap to happen ~2px earlier than in PaintText/DT_EDITCONTROL).
+    {
+        RECT fmt;
+        GetClientRect(m_hEditCtrl, &fmt);
+        SendMessageW(m_hEditCtrl, EM_SETRECTNP, 0, reinterpret_cast<LPARAM>(&fmt));
+    }
 
     // Subclass for CTRL+ENTER and ESC
     SetWindowSubclass(m_hEditCtrl, EditSubclassProc, EDIT_SUBCLASS_ID,
@@ -843,6 +853,7 @@ void NoteWindow::EnterEditMode() {
         // Place cursor at end instead of selecting all text
         int textLen = GetWindowTextLengthW(m_hEditCtrl);
         SendMessageW(m_hEditCtrl, EM_SETSEL, textLen, textLen);
+        SendMessageW(m_hEditCtrl, EM_SCROLLCARET, 0, 0);
     }
     SetFocus(m_hEditCtrl);
 
@@ -900,11 +911,17 @@ LRESULT CALLBACK NoteWindow::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam
         }
 
         case WM_KILLFOCUS: {
-            // Auto-save when focus leaves the edit control
+            // Auto-save when focus leaves the edit control — but not when it
+            // goes to our own in-note find dialog, or the edit mode would be
+            // torn down between each "Find Next" click and the search cursor
+            // would reset to the top on every click.
             HWND newFocus = reinterpret_cast<HWND>(wParam);
+            HWND findHwnd = self->m_findDialog ? self->m_findDialog->GetHwnd()
+                                               : nullptr;
+            bool focusInFindDialog = findHwnd && newFocus &&
+                (newFocus == findHwnd || IsChild(findHwnd, newFocus));
             if (newFocus != hwnd && !IsChild(self->m_hwnd, newFocus) &&
-                newFocus != self->m_hwnd) {
-                // Post to avoid re-entrancy
+                newFocus != self->m_hwnd && !focusInFindDialog) {
                 self->ExitEditMode(true);
                 return 0;
             }
@@ -992,6 +1009,7 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
     addItemRes(ID_NOTE_ATTACHMENTS, Ls(L"note.attachments").c_str(), IDI_ATTACHMENT,
                m_data->showAttachments ? MF_CHECKED : 0);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
+    addItemRes(ID_NOTE_SEARCH, Ls(L"note.search").c_str(), IDI_SEARCH);
     addItemRes(ID_NOTE_NEWNOTE, Ls(L"note.new_note").c_str(), IDI_NEW);
 
     SetForegroundWindow(m_hwnd);
@@ -1129,6 +1147,10 @@ void NoteWindow::HandleMenuCommand(int cmd) {
 
         case ID_NOTE_NEWNOTE:
             Application::Get().CreateNewNote();
+            break;
+
+        case ID_NOTE_SEARCH:
+            OpenFindDialog();
             break;
 
         case ID_NOTE_HIDE:
@@ -1425,4 +1447,99 @@ void NoteWindow::NotifyChanged() {
     HWND appWnd = FindWindowW(L"UltraNoteApp", L"UltraNote");
     if (appWnd)
         PostMessageW(appWnd, WM_NOTE_CHANGED, 0, 0);
+}
+
+// ============================================================================
+// In-note search
+// ============================================================================
+
+void NoteWindow::OpenFindDialog() {
+    if (!m_findDialog) {
+        m_findDialog = std::make_unique<FindInNoteDialog>(m_hInst, this);
+        if (!m_findDialog->Create()) {
+            m_findDialog.reset();
+            return;
+        }
+    }
+    // Reset search cursor so a freshly opened dialog starts from the top
+    m_findSearchPos = 0;
+    m_findLastMatchStart = std::wstring::npos;
+    m_findLastMatchEnd   = std::wstring::npos;
+    m_findDialog->ShowAndFocus();
+}
+
+bool NoteWindow::FindNextInNote(const std::wstring& term, bool caseSensitive) {
+    if (term.empty()) return false;
+
+    // Lazily enter edit mode so we can highlight and scroll to matches.
+    bool wasInEditMode = m_inEditMode;
+    if (!m_inEditMode || !m_hEditCtrl) {
+        EnterEditMode();
+        m_findSearchPos = 0;
+        m_findLastMatchStart = std::wstring::npos;
+        m_findLastMatchEnd   = std::wstring::npos;
+    }
+    if (!m_hEditCtrl) return false;
+
+    int len = GetWindowTextLengthW(m_hEditCtrl);
+    if (len <= 0) { MessageBeep(MB_ICONASTERISK); return false; }
+    std::wstring text(len, L'\0');
+    GetWindowTextW(m_hEditCtrl, text.data(), len + 1);
+
+    // If the user moved the caret manually between searches (selection no
+    // longer matches our last found range), restart from the caret position.
+    if (wasInEditMode) {
+        DWORD selStart = 0, selEnd = 0;
+        SendMessageW(m_hEditCtrl, EM_GETSEL,
+                     reinterpret_cast<WPARAM>(&selStart),
+                     reinterpret_cast<LPARAM>(&selEnd));
+        if (static_cast<size_t>(selStart) != m_findLastMatchStart ||
+            static_cast<size_t>(selEnd)   != m_findLastMatchEnd) {
+            m_findSearchPos = selEnd;
+        }
+    }
+
+    auto toLower = [](std::wstring s) {
+        for (auto& c : s) c = towlower(c);
+        return s;
+    };
+
+    std::wstring hay = caseSensitive ? text : toLower(text);
+    std::wstring nd  = caseSensitive ? term : toLower(term);
+
+    if (m_findSearchPos > hay.size()) m_findSearchPos = hay.size();
+
+    size_t pos = hay.find(nd, m_findSearchPos);
+    bool wrapped = false;
+    if (pos == std::wstring::npos && m_findSearchPos > 0) {
+        pos = hay.find(nd, 0);
+        wrapped = true;
+    }
+
+    if (pos == std::wstring::npos) {
+        MessageBeep(MB_ICONASTERISK);
+        return false;
+    }
+
+    // Scroll viewport to the target line BEFORE setting the selection, so the
+    // control doesn't first repaint at the top and then jump back down.
+    LRESULT targetLine = SendMessageW(m_hEditCtrl, EM_LINEFROMCHAR,
+                                      static_cast<WPARAM>(pos), 0);
+    LRESULT firstVisible = SendMessageW(m_hEditCtrl, EM_GETFIRSTVISIBLELINE, 0, 0);
+    int desiredTop = static_cast<int>(targetLine) - 2;
+    if (desiredTop < 0) desiredTop = 0;
+    int delta = desiredTop - static_cast<int>(firstVisible);
+    if (delta != 0) {
+        SendMessageW(m_hEditCtrl, EM_LINESCROLL, 0, static_cast<LPARAM>(delta));
+    }
+    SendMessageW(m_hEditCtrl, EM_SETSEL,
+                 static_cast<WPARAM>(pos),
+                 static_cast<LPARAM>(pos + term.size()));
+
+    m_findLastMatchStart = pos;
+    m_findLastMatchEnd   = pos + term.size();
+    m_findSearchPos      = m_findLastMatchEnd;
+
+    if (wrapped) MessageBeep(MB_OK);
+    return true;
 }

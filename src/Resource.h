@@ -45,6 +45,7 @@
 #define ID_NOTE_HIDE            216
 #define ID_NOTE_RENAME          217
 #define ID_NOTE_ATTACHMENTS     218
+#define ID_NOTE_SEARCH          219
 
 // Note list menu bar
 #define IDR_NOTELIST_MENU       220

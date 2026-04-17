@@ -16,6 +16,7 @@ set(SOURCES
     src/Storage.cpp
     src/Localization.cpp
     src/SettingsDialog.cpp
+    src/FindInNoteDialog.cpp
 )
 
 # Resource file

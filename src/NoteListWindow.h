@@ -84,7 +84,9 @@ private:
     HICON      m_hFolderIcon    = nullptr;
     HICON      m_hAllNotesIcon  = nullptr;
 
-    std::wstring m_selectedFolder;  // Empty = show all notes
+    enum class FolderFilter { All, Unfiled, Named };
+    FolderFilter m_folderFilter   = FolderFilter::All;
+    std::wstring m_selectedFolder;  // Valid only when m_folderFilter == Named
     std::wstring m_searchQuery;    // Empty = no filter
 
     int  m_sortColumn    = -1;

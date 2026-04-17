@@ -170,8 +170,29 @@ bool NoteListWindow::Create() {
 
 void NoteListWindow::Show() {
     Refresh();
-    ShowWindow(m_hwnd, SW_SHOW);
+    // Restore if minimized, then force to foreground. SetForegroundWindow
+    // alone can fail due to Windows' foreground-lock — the AttachThreadInput
+    // trick bypasses it when the call isn't coming from the foreground thread.
+    if (IsIconic(m_hwnd)) {
+        ShowWindow(m_hwnd, SW_RESTORE);
+    } else {
+        ShowWindow(m_hwnd, SW_SHOW);
+    }
+
+    HWND hFore = GetForegroundWindow();
+    DWORD myThread   = GetCurrentThreadId();
+    DWORD foreThread = hFore ? GetWindowThreadProcessId(hFore, nullptr) : 0;
+    bool attached = false;
+    if (foreThread && foreThread != myThread) {
+        attached = AttachThreadInput(foreThread, myThread, TRUE) != 0;
+    }
+    BringWindowToTop(m_hwnd);
     SetForegroundWindow(m_hwnd);
+    SetFocus(m_hwnd);
+    if (attached) {
+        AttachThreadInput(foreThread, myThread, FALSE);
+    }
+
     if (m_previewEnabled) StartPreviewTimer();
 }
 
@@ -237,14 +258,18 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             if (reinterpret_cast<HWND>(lParam) == m_hFolderList && code == LBN_SELCHANGE) {
                 int sel = static_cast<int>(SendMessageW(m_hFolderList, LB_GETCURSEL, 0, 0));
                 if (sel == 0) {
-                    // "All Notes"
+                    m_folderFilter = FolderFilter::All;
                     m_selectedFolder.clear();
-                } else if (sel > 0) {
+                } else if (sel == 1) {
+                    m_folderFilter = FolderFilter::Unfiled;
+                    m_selectedFolder.clear();
+                } else if (sel > 1) {
                     int len = static_cast<int>(SendMessageW(m_hFolderList, LB_GETTEXTLEN, sel, 0));
                     if (len > 0) {
                         std::wstring text(static_cast<size_t>(len), L'\0');
                         SendMessageW(m_hFolderList, LB_GETTEXT, sel,
                                      reinterpret_cast<LPARAM>(&text[0]));
+                        m_folderFilter = FolderFilter::Named;
                         m_selectedFolder = text;
                     }
                 }
@@ -331,9 +356,9 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     NewFolderDialog();
                     return 0;
                 case ID_NL_FOLDER_RENAME: {
-                    // Rename currently selected folder (index 0 = "All Notes", skip)
+                    // Rename: skip fixed entries (0 = "All Notes", 1 = "Unfiled")
                     int sel = static_cast<int>(SendMessageW(m_hFolderList, LB_GETCURSEL, 0, 0));
-                    if (sel > 0) {
+                    if (sel > 1) {
                         int len = static_cast<int>(SendMessageW(m_hFolderList, LB_GETTEXTLEN, sel, 0));
                         if (len > 0) {
                             std::wstring text(static_cast<size_t>(len), L'\0');
@@ -346,7 +371,7 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
                 case ID_NL_FOLDER_DELETE: {
                     int sel = static_cast<int>(SendMessageW(m_hFolderList, LB_GETCURSEL, 0, 0));
-                    if (sel > 0) {
+                    if (sel > 1) {
                         int len = static_cast<int>(SendMessageW(m_hFolderList, LB_GETTEXTLEN, sel, 0));
                         if (len > 0) {
                             std::wstring text(static_cast<size_t>(len), L'\0');
@@ -635,6 +660,7 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
                 bool isSelected = (dis->itemState & ODS_SELECTED) != 0;
                 bool isAllNotes = (dis->itemID == 0);
+                bool isUnfiled  = (dis->itemID == 1);
 
                 // Background
                 COLORREF bgColor;
@@ -642,8 +668,8 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (isSelected) {
                     bgColor = GetSysColor(COLOR_HIGHLIGHT);
                     txColor = GetSysColor(COLOR_HIGHLIGHTTEXT);
-                } else if (isAllNotes) {
-                    bgColor = RGB(230, 230, 230); // Light gray
+                } else if (isAllNotes || isUnfiled) {
+                    bgColor = RGB(230, 230, 230); // Light gray for fixed entries
                     txColor = GetSysColor(COLOR_WINDOWTEXT);
                 } else {
                     bgColor = GetSysColor(COLOR_WINDOW);
@@ -660,12 +686,22 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 // Draw icon
                 int iconSize = GetSystemMetrics(SM_CXSMICON);
                 int iconY = dis->rcItem.top + (dis->rcItem.bottom - dis->rcItem.top - iconSize) / 2;
+                int iconX = dis->rcItem.left + 3;
                 HICON hIcon = isAllNotes ? m_hAllNotesIcon : m_hFolderIcon;
                 if (hIcon) {
-                    DrawIconEx(dis->hDC, dis->rcItem.left + 3, iconY,
+                    DrawIconEx(dis->hDC, iconX, iconY,
                                hIcon, iconSize, iconSize, 0, nullptr, DI_NORMAL);
                 }
-                int textLeft = dis->rcItem.left + 3 + iconSize + 4;
+                // "Unfiled": overlay a diagonal red line over the folder icon
+                if (isUnfiled) {
+                    HPEN hPen = CreatePen(PS_SOLID, 2, RGB(200, 40, 40));
+                    HPEN hOldPen = static_cast<HPEN>(SelectObject(dis->hDC, hPen));
+                    MoveToEx(dis->hDC, iconX + 1,            iconY + iconSize - 1, nullptr);
+                    LineTo  (dis->hDC, iconX + iconSize - 1, iconY + 1);
+                    SelectObject(dis->hDC, hOldPen);
+                    DeleteObject(hPen);
+                }
+                int textLeft = iconX + iconSize + 4;
 
                 // Bold font for "All Notes"
                 HFONT hFont = nullptr;
@@ -997,11 +1033,14 @@ void NoteListWindow::PopulateFolderList() {
 
     SendMessageW(m_hFolderList, LB_RESETCONTENT, 0, 0);
 
-    // "All Notes" always first
+    // Index 0: "All Notes"
     SendMessageW(m_hFolderList, LB_ADDSTRING, 0,
                  reinterpret_cast<LPARAM>(Ls(L"note.all_folders").c_str()));
+    // Index 1: "Unfiled" (notes without any folder assignment)
+    SendMessageW(m_hFolderList, LB_ADDSTRING, 0,
+                 reinterpret_cast<LPARAM>(Ls(L"note.unfiled").c_str()));
 
-    // Sorted folders
+    // Index 2+: User-defined folders (sorted)
     auto& folders = Application::Get().GetFolders();
     for (const auto& f : folders) {
         SendMessageW(m_hFolderList, LB_ADDSTRING, 0,
@@ -1009,12 +1048,14 @@ void NoteListWindow::PopulateFolderList() {
     }
 
     // Restore selection
-    if (m_selectedFolder.empty()) {
-        SendMessageW(m_hFolderList, LB_SETCURSEL, 0, 0); // "All Notes"
+    if (m_folderFilter == FolderFilter::All) {
+        SendMessageW(m_hFolderList, LB_SETCURSEL, 0, 0);
+    } else if (m_folderFilter == FolderFilter::Unfiled) {
+        SendMessageW(m_hFolderList, LB_SETCURSEL, 1, 0);
     } else {
         int count = static_cast<int>(SendMessageW(m_hFolderList, LB_GETCOUNT, 0, 0));
         bool found = false;
-        for (int i = 1; i < count; ++i) {
+        for (int i = 2; i < count; ++i) {
             int len = static_cast<int>(SendMessageW(m_hFolderList, LB_GETTEXTLEN, i, 0));
             if (len > 0) {
                 std::wstring text(static_cast<size_t>(len), L'\0');
@@ -1028,6 +1069,7 @@ void NoteListWindow::PopulateFolderList() {
             }
         }
         if (!found) {
+            m_folderFilter = FolderFilter::All;
             m_selectedFolder.clear();
             SendMessageW(m_hFolderList, LB_SETCURSEL, 0, 0);
         }
@@ -1147,7 +1189,9 @@ void NoteListWindow::PopulateList() {
         auto& note = *notes[i];
 
         // Filter by selected folder
-        if (!m_selectedFolder.empty()) {
+        if (m_folderFilter == FolderFilter::Unfiled) {
+            if (!note.folder.empty()) continue;
+        } else if (m_folderFilter == FolderFilter::Named) {
             if (note.folder != m_selectedFolder) continue;
         }
 
@@ -1644,13 +1688,34 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
     AppendMenuW(hPopup, singleFlag, ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str());
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
-    // "Set Folder" submenu
+    // "Set Folder" submenu — for single selection, mark current folder with a check.
+    // For multi-select we skip the check (notes may be in different folders).
+    std::wstring currentFolder;
+    bool haveCurrent = false;
+    if (!multiSelect) {
+        int idx = ListView_GetNextItem(m_hListView, -1, LVNI_SELECTED);
+        if (idx >= 0) {
+            LVITEMW item = {};
+            item.mask  = LVIF_PARAM;
+            item.iItem = idx;
+            ListView_GetItem(m_hListView, &item);
+            NoteData* nd = Application::Get().FindNoteData(
+                static_cast<uint64_t>(item.lParam));
+            if (nd) { currentFolder = nd->folder; haveCurrent = true; }
+        }
+    }
+
     HMENU hFolderSub = CreatePopupMenu();
-    AppendMenuW(hFolderSub, MF_STRING, ID_NL_FOLDER_BASE, Ls(L"note.no_folder").c_str());
+    UINT noFolderFlags = MF_STRING;
+    if (haveCurrent && currentFolder.empty()) noFolderFlags |= MF_CHECKED;
+    AppendMenuW(hFolderSub, noFolderFlags, ID_NL_FOLDER_BASE,
+                Ls(L"note.no_folder").c_str());
     AppendMenuW(hFolderSub, MF_SEPARATOR, 0, nullptr);
     auto& folders = Application::Get().GetFolders();
     for (size_t i = 0; i < folders.size() && i + 1 < (ID_NL_FOLDER_MAX - ID_NL_FOLDER_BASE); ++i) {
-        AppendMenuW(hFolderSub, MF_STRING,
+        UINT flags = MF_STRING;
+        if (haveCurrent && currentFolder == folders[i]) flags |= MF_CHECKED;
+        AppendMenuW(hFolderSub, flags,
                     ID_NL_FOLDER_BASE + static_cast<UINT>(i + 1),
                     folders[i].c_str());
     }
@@ -1671,10 +1736,12 @@ void NoteListWindow::ShowFolderContextMenu(int screenX, int screenY) {
     if (!hPopup) return;
 
     int sel = static_cast<int>(SendMessageW(m_hFolderList, LB_GETCURSEL, 0, 0));
-    bool isFolder = (sel > 0); // Index 0 = "All Notes"
+    // Index 0 = "All Notes", index 1 = "Unfiled" — both fixed entries.
+    // Rename/delete only apply to user folders (index >= 2).
+    bool isUserFolder = (sel > 1);
 
     AppendMenuW(hPopup, MF_STRING, ID_NL_FOLDER_NEW, Ls(L"folder.new").c_str());
-    if (isFolder) {
+    if (isUserFolder) {
         AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hPopup, MF_STRING, ID_NL_FOLDER_RENAME, Ls(L"folder.rename").c_str());
         AppendMenuW(hPopup, MF_STRING, ID_NL_FOLDER_DELETE, Ls(L"folder.delete").c_str());
@@ -1892,8 +1959,14 @@ INT_PTR CALLBACK NoteListWindow::InputDlgProc(HWND hwnd, UINT msg, WPARAM wParam
                             hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
                             nullptr, nullptr);
 
-            // Set font for all children
-            HFONT hFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            // Use the modern system message font (Segoe UI 9pt on Win 10/11)
+            // instead of DEFAULT_GUI_FONT (MS Sans Serif 8pt) so labels,
+            // edit and buttons match the visual weight of the rest of the OS.
+            NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (!hFont) hFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            SetWindowLongPtrW(hwnd, DWLP_USER, reinterpret_cast<LONG_PTR>(hFont));
             EnumChildWindows(hwnd, [](HWND child, LPARAM font) -> BOOL {
                 SendMessageW(child, WM_SETFONT, static_cast<WPARAM>(font), TRUE);
                 return TRUE;
@@ -1950,6 +2023,12 @@ INT_PTR CALLBACK NoteListWindow::InputDlgProc(HWND hwnd, UINT msg, WPARAM wParam
         case WM_CLOSE:
             EndDialog(hwnd, IDCANCEL);
             return TRUE;
+
+        case WM_DESTROY: {
+            HFONT hFont = reinterpret_cast<HFONT>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (hFont) DeleteObject(hFont);
+            break;
+        }
     }
 
     return FALSE;
