@@ -138,25 +138,6 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 
 ---
 
-## Roadmap
-
-- [x] **Phase 1** — MVP: Notes, tray, persistence, multi-select, localization
-- [x] **Phase 1.5** — Note list toolbar, settings persistence, bug fixes
-- [x] **Phase 1.7** — Note list preview, release build optimization
-- [x] **Phase 2** — Settings dialog, global hotkeys, about dialog
-- [x] **Phase 2.5** — Search function in note list
-- [x] **Phase 3** — Custom icons, stability fixes, selection overhaul, hotkey cleanup, status bar
-- [x] **Phase 3.9** — Attachment bar (drag & drop file references), initial text variables
-- [x] **Phase 4** — Clickable URL detection
-- [x] **Phase 4.1** — Header sorting fix + sort arrows
-- [x] **Phase 4.2** — Note list overhaul: column reordering, date format, zebra striping, compact rename dialog
-- [x] **Phase 5** — v1.0.0: Text rendering fix, instant hidden-state sync, search highlighting
-- [x] **Phase 6** — Find-in-note dialog, "Unfiled" folder filter, UX polish
-- [x] **Phase 7** — Alarm system: per-note alarms with 8 repetition types, configurable popup + snooze, new note list columns
-- [ ] **Next** — Print support, minimize/restore, optional RichEdit migration for clickable links in edit mode
-
----
-
 ## Credits
 
 - **Inspired by** ATnotes by Thomas Ascher
@@ -166,7 +147,7 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 
 ## Changelog
 
-### v1.1.0 (2026-04-17)
+### v1.1.0 (2026-04-18)
 - **Alarm system:** per-note alarms with 8 repetition types (Once, Daily, Every N, Weekly, Monthly on day / Nth weekday, Quarterly, Yearly); 3 end conditions; topmost popup with sound + snooze; 3 new note list columns (Next, Interval, Status) with visibility toggle
 - **Find in note:** per-note find dialog with case-sensitive toggle, viewport pre-scroll, and selection that persists while the dialog has focus
 - **Alarm config dialog UX:** two aligned edit columns, UpDown spinners on all numeric fields, section separators, vertically centered spinner boxes matching radio button midlines
