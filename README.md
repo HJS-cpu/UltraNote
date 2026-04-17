@@ -151,7 +151,9 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 - [x] **Phase 4.1** — Header sorting fix + sort arrows
 - [x] **Phase 4.2** — Note list overhaul: column reordering, date format, zebra striping, compact rename dialog
 - [x] **Phase 5** — v1.0.0: Text rendering fix, instant hidden-state sync, search highlighting
-- [ ] **Phase 6** — Alarm system, print support, minimize/restore
+- [x] **Phase 6** — Find-in-note dialog, "Unfiled" folder filter, UX polish
+- [x] **Phase 7** — Alarm system: per-note alarms with 8 repetition types, configurable popup + snooze, new note list columns
+- [ ] **Next** — Print support, minimize/restore, optional RichEdit migration for clickable links in edit mode
 
 ---
 
@@ -163,6 +165,14 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 ---
 
 ## Changelog
+
+### v1.1.0 (2026-04-17)
+- **Alarm system:** per-note alarms with 8 repetition types (Once, Daily, Every N, Weekly, Monthly on day / Nth weekday, Quarterly, Yearly); 3 end conditions; topmost popup with sound + snooze; 3 new note list columns (Next, Interval, Status) with visibility toggle
+- **Find in note:** per-note find dialog with case-sensitive toggle, viewport pre-scroll, and selection that persists while the dialog has focus
+- **Alarm config dialog UX:** two aligned edit columns, UpDown spinners on all numeric fields, section separators, vertically centered spinner boxes matching radio button midlines
+- **Unfiled folder filter:** notes without a folder get their own list entry (red-slashed folder icon)
+- **Editor fixes:** eliminated wordwrap drift between edit and view modes (EM_SETRECTNP); cursor now scrolls into view on entering edit mode for long notes
+- **Note list polish:** current folder check-marked in context menu; robust foreground restore for minimized window; Segoe UI rename dialog
 
 ### v1.0.0 (2026-04-16)
 - **Search highlighting:** matches from note list search are highlighted in orange across all open notes; first match auto-selected when entering edit mode

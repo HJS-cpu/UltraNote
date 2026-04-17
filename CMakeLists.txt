@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(UltraNote VERSION 1.0.0 LANGUAGES CXX)
+project(UltraNote VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,9 @@ set(SOURCES
     src/Localization.cpp
     src/SettingsDialog.cpp
     src/FindInNoteDialog.cpp
+    src/AlarmScheduler.cpp
+    src/AlarmPopupWindow.cpp
+    src/AlarmConfigDialog.cpp
 )
 
 # Resource file
@@ -36,6 +39,7 @@ target_link_libraries(UltraNote PRIVATE
     comdlg32
     uxtheme
     shlwapi
+    winmm
 )
 
 # MSVC specific settings

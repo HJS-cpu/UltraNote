@@ -22,6 +22,34 @@ std::wstring Storage::ColorToHex(COLORREF c) {
     return buf;
 }
 
+// SYSTEMTIME <-> "YYYY-MM-DD HH:MM" (local wall-clock; seconds dropped)
+static std::wstring SysTimeToString(const SYSTEMTIME& st) {
+    wchar_t buf[32];
+    swprintf_s(buf, L"%04u-%02u-%02u %02u:%02u",
+               st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute);
+    return buf;
+}
+
+static bool StringToSysTime(const std::wstring& s, SYSTEMTIME& st) {
+    ZeroMemory(&st, sizeof(st));
+    if (s.size() < 10) return false;
+    st.wYear   = static_cast<WORD>(wcstoul(s.substr(0, 4).c_str(), nullptr, 10));
+    st.wMonth  = static_cast<WORD>(wcstoul(s.substr(5, 2).c_str(), nullptr, 10));
+    st.wDay    = static_cast<WORD>(wcstoul(s.substr(8, 2).c_str(), nullptr, 10));
+    if (s.size() >= 16) {
+        st.wHour   = static_cast<WORD>(wcstoul(s.substr(11, 2).c_str(), nullptr, 10));
+        st.wMinute = static_cast<WORD>(wcstoul(s.substr(14, 2).c_str(), nullptr, 10));
+    }
+    // Populate wDayOfWeek via round-trip through FILETIME
+    FILETIME ft;
+    SYSTEMTIME normalized = st;
+    if (SystemTimeToFileTime(&normalized, &ft)) {
+        FileTimeToSystemTime(&ft, &normalized);
+        st.wDayOfWeek = normalized.wDayOfWeek;
+    }
+    return st.wYear != 0;
+}
+
 std::wstring Storage::EscapeJsonString(const std::wstring& s) {
     std::wstring out;
     out.reserve(s.size() + 16);
@@ -77,8 +105,31 @@ std::wstring Storage::SerializeNote(const NoteData& note) {
         if (i > 0) s += L", ";
         s += L"\"" + EscapeJsonString(note.attachments[i]) + L"\"";
     }
-    s += L"]\n";
-    s += L"    }";
+    s += L"]";
+    if (note.alarm.has_value()) {
+        const auto& a = *note.alarm;
+        s += L",\n      \"alarm\": {\n";
+        s += L"        \"kind\": " + std::to_wstring(static_cast<int>(a.kind)) + L",\n";
+        s += L"        \"startTime\": \"" + SysTimeToString(a.startTime) + L"\",\n";
+        s += L"        \"intervalDays\": " + std::to_wstring(a.intervalDays) + L",\n";
+        s += L"        \"weekdayMask\": " + std::to_wstring(a.weekdayMask) + L",\n";
+        s += L"        \"monthDay\": " + std::to_wstring(a.monthDay) + L",\n";
+        s += L"        \"nthWeek\": " + std::to_wstring(a.nthWeek) + L",\n";
+        s += L"        \"nthWeekday\": " + std::to_wstring(a.nthWeekday) + L",\n";
+        s += L"        \"quarterDay\": " + std::to_wstring(a.quarterDay) + L",\n";
+        s += L"        \"endKind\": " + std::to_wstring(static_cast<int>(a.endKind)) + L",\n";
+        s += L"        \"endCount\": " + std::to_wstring(a.endCount) + L",\n";
+        s += L"        \"endDate\": \"" + SysTimeToString(a.endDate) + L"\",\n";
+        s += L"        \"popup\": " + std::wstring(a.popup ? L"true" : L"false") + L",\n";
+        s += L"        \"sound\": " + std::wstring(a.sound ? L"true" : L"false") + L",\n";
+        s += L"        \"soundFile\": \"" + EscapeJsonString(a.soundFile) + L"\",\n";
+        s += L"        \"snoozeMinutes\": " + std::to_wstring(a.snoozeMinutes) + L",\n";
+        s += L"        \"firedCount\": " + std::to_wstring(a.firedCount) + L",\n";
+        s += L"        \"snoozeUntil\": " + std::to_wstring(a.snoozeUntil) + L",\n";
+        s += L"        \"paused\": " + std::wstring(a.paused ? L"true" : L"false") + L"\n";
+        s += L"      }";
+    }
+    s += L"\n    }";
     return s;
 }
 
@@ -385,6 +436,81 @@ bool Storage::ParseNoteObject(const wchar_t*& p, NoteData& note) {
             if (!ParseBool(p, note.showAttachments)) return false;
         } else if (key == L"attachments") {
             if (!ParseStringArray(p, note.attachments)) return false;
+        } else if (key == L"alarm") {
+            AlarmConfig alarm;
+            if (!ParseAlarmObject(p, alarm)) return false;
+            note.alarm = std::move(alarm);
+        } else {
+            if (!SkipValue(p)) return false;
+        }
+
+        SkipWhitespace(p);
+        if (*p == L',') ++p;
+    }
+
+    return Expect(p, L'}');
+}
+
+bool Storage::ParseAlarmObject(const wchar_t*& p, AlarmConfig& alarm) {
+    if (!Expect(p, L'{')) return false;
+
+    while (*p && *p != L'}') {
+        SkipWhitespace(p);
+        if (*p == L'}') break;
+
+        std::wstring key;
+        if (!ParseString(p, key)) return false;
+        if (!Expect(p, L':')) return false;
+
+        if (key == L"kind") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.kind = static_cast<AlarmKind>(val);
+        } else if (key == L"startTime") {
+            std::wstring val; if (!ParseString(p, val)) return false;
+            StringToSysTime(val, alarm.startTime);
+        } else if (key == L"intervalDays") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.intervalDays = static_cast<int>(val);
+        } else if (key == L"weekdayMask") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.weekdayMask = static_cast<uint8_t>(val);
+        } else if (key == L"monthDay") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.monthDay = static_cast<int>(val);
+        } else if (key == L"nthWeek") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.nthWeek = static_cast<int>(val);
+        } else if (key == L"nthWeekday") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.nthWeekday = static_cast<int>(val);
+        } else if (key == L"quarterDay") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.quarterDay = static_cast<int>(val);
+        } else if (key == L"endKind") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.endKind = static_cast<AlarmEndKind>(val);
+        } else if (key == L"endCount") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.endCount = static_cast<int>(val);
+        } else if (key == L"endDate") {
+            std::wstring val; if (!ParseString(p, val)) return false;
+            StringToSysTime(val, alarm.endDate);
+        } else if (key == L"popup") {
+            if (!ParseBool(p, alarm.popup)) return false;
+        } else if (key == L"sound") {
+            if (!ParseBool(p, alarm.sound)) return false;
+        } else if (key == L"soundFile") {
+            if (!ParseString(p, alarm.soundFile)) return false;
+        } else if (key == L"snoozeMinutes") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.snoozeMinutes = static_cast<int>(val);
+        } else if (key == L"firedCount") {
+            int64_t val; if (!ParseInt(p, val)) return false;
+            alarm.firedCount = static_cast<int>(val);
+        } else if (key == L"snoozeUntil") {
+            if (!ParseInt(p, alarm.snoozeUntil)) return false;
+        } else if (key == L"paused") {
+            if (!ParseBool(p, alarm.paused)) return false;
         } else {
             if (!SkipValue(p)) return false;
         }

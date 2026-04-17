@@ -1,6 +1,7 @@
 #include "NoteWindow.h"
 #include "Application.h"
 #include "FindInNoteDialog.h"
+#include "AlarmConfigDialog.h"
 #include "SettingsDialog.h"
 #include "Localization.h"
 #include "Utils.h"
@@ -1008,6 +1009,8 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
                m_data->layout.alwaysOnTop ? MF_CHECKED : 0);
     addItemRes(ID_NOTE_ATTACHMENTS, Ls(L"note.attachments").c_str(), IDI_ATTACHMENT,
                m_data->showAttachments ? MF_CHECKED : 0);
+    addItemRes(ID_NOTE_ALARM, Ls(L"note.alarm").c_str(), IDI_ALARM,
+               m_data->alarm.has_value() ? MF_CHECKED : 0);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
     addItemRes(ID_NOTE_SEARCH, Ls(L"note.search").c_str(), IDI_SEARCH);
     addItemRes(ID_NOTE_NEWNOTE, Ls(L"note.new_note").c_str(), IDI_NEW);
@@ -1151,6 +1154,10 @@ void NoteWindow::HandleMenuCommand(int cmd) {
 
         case ID_NOTE_SEARCH:
             OpenFindDialog();
+            break;
+
+        case ID_NOTE_ALARM:
+            OpenAlarmDialog();
             break;
 
         case ID_NOTE_HIDE:
@@ -1466,6 +1473,19 @@ void NoteWindow::OpenFindDialog() {
     m_findLastMatchStart = std::wstring::npos;
     m_findLastMatchEnd   = std::wstring::npos;
     m_findDialog->ShowAndFocus();
+}
+
+void NoteWindow::OpenAlarmDialog() {
+    // Reuse existing dialog if its HWND is still valid; otherwise recreate.
+    if (m_alarmDialog && m_alarmDialog->GetHwnd()) {
+        SetForegroundWindow(m_alarmDialog->GetHwnd());
+        return;
+    }
+    m_alarmDialog.reset();
+    m_alarmDialog = std::make_unique<AlarmConfigDialog>(m_hInst, m_hwnd, m_data->id);
+    if (!m_alarmDialog->Create()) {
+        m_alarmDialog.reset();
+    }
 }
 
 bool NoteWindow::FindNextInNote(const std::wstring& term, bool caseSensitive) {

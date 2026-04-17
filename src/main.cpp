@@ -15,7 +15,7 @@ int WINAPI wWinMain(
     // Enable visual styles (ComCtl v6)
     INITCOMMONCONTROLSEX icc = {};
     icc.dwSize = sizeof(icc);
-    icc.dwICC  = ICC_LISTVIEW_CLASSES | ICC_WIN95_CLASSES;
+    icc.dwICC  = ICC_LISTVIEW_CLASSES | ICC_WIN95_CLASSES | ICC_DATE_CLASSES;
     InitCommonControlsEx(&icc);
 
     Application& app = Application::Get();

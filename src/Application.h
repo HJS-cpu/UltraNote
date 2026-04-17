@@ -11,6 +11,8 @@
 
 class NoteWindow;
 class NoteListWindow;
+class AlarmPopupWindow;
+enum class AlarmAction;
 
 class Application {
 public:
@@ -82,6 +84,10 @@ public:
     void RegisterGlobalHotkeys();
     void UnregisterGlobalHotkeys();
 
+    // Alarms
+    void CheckDueAlarms();
+    void OnAlarmPopupClosed(uint64_t noteId, AlarmAction action);
+
     HINSTANCE GetInstance() const { return m_hInst; }
     bool      AreClickableLinksEnabled() const { return m_clickableLinks; }
     COLORREF  GetSearchHighlightColor() const { return m_searchHlColor; }
@@ -131,4 +137,9 @@ private:
     std::unordered_map<int, HBITMAP> m_menuBitmaps;
     // Cached resource icon bitmaps (resource id -> HBITMAP)
     std::unordered_map<UINT, HBITMAP> m_resBitmaps;
+
+    // Active alarm popups (keyed by note id, one per note)
+    std::unordered_map<uint64_t, AlarmPopupWindow*> m_alarmPopups;
+
+    void TriggerAlarm(NoteData& note);
 };

@@ -54,4 +54,5 @@ private:
     static bool SkipValue(const wchar_t*& p);
     static bool ParseNoteObject(const wchar_t*& p, NoteData& note);
     static bool ParseLayoutObject(const wchar_t*& p, NoteLayout& layout);
+    static bool ParseAlarmObject(const wchar_t*& p, AlarmConfig& alarm);
 };

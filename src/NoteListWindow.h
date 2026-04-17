@@ -92,7 +92,18 @@ private:
     int  m_sortColumn    = -1;
     bool m_sortAscending = true;
 
-    enum Column { COL_TITLE = 0, COL_TEXT, COL_FOLDER, COL_HIDDEN, COL_ONTOP, COL_CREATED, COL_ATTACH, COL_COUNT };
+    enum Column { COL_TITLE = 0, COL_TEXT, COL_FOLDER, COL_HIDDEN, COL_ONTOP, COL_CREATED, COL_ATTACH,
+                  COL_NEXT_ALARM, COL_INTERVAL, COL_ALARM_STATUS, COL_COUNT };
+
+    // Header context menu: toggle per-column visibility
+    void ShowHeaderContextMenu(int screenX, int screenY);
+    void SetColumnVisible(int col, bool visible);
+    bool IsColumnVisible(int col) const;
+
+    // Cached column-visibility state; widths of hidden columns are saved in m_columnSavedWidths
+    // so we can restore them on re-show without losing the user's preferred width.
+    bool     m_columnVisible[COL_COUNT] = {};
+    int      m_columnSavedWidths[COL_COUNT] = {};
 
     // Splitter between folder list and listview
     int  m_folderListWidth   = 150;

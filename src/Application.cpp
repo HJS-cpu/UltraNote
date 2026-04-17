@@ -6,6 +6,8 @@
 #include "Localization.h"
 #include "Utils.h"
 #include "Resource.h"
+#include "AlarmScheduler.h"
+#include "AlarmPopupWindow.h"
 #include <algorithm>
 #include <ctime>
 #include <shellapi.h>
@@ -75,6 +77,16 @@ void Application::Shutdown() {
     SaveAll();
     UnregisterGlobalHotkeys();
     KillTimer(m_hAppWnd, IDT_AUTOSAVE);
+    KillTimer(m_hAppWnd, IDT_ALARM);
+
+    // Close any open alarm popups (they self-delete on WM_NCDESTROY)
+    // Make a local copy because DestroyWindow triggers map mutation via OnAlarmPopupClosed
+    auto popups = m_alarmPopups;
+    for (auto& [id, popup] : popups) {
+        if (popup && popup->GetHwnd()) DestroyWindow(popup->GetHwnd());
+    }
+    m_alarmPopups.clear();
+
     RemoveTrayIcon();
 
     // Destroy note windows
@@ -175,6 +187,8 @@ LRESULT Application::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         case WM_TIMER: {
             if (wParam == IDT_AUTOSAVE && m_dirty) {
                 SaveAll();
+            } else if (wParam == IDT_ALARM) {
+                CheckDueAlarms();
             }
             return 0;
         }
@@ -951,6 +965,10 @@ void Application::ApplySettings() {
     SetTimer(m_hAppWnd, IDT_AUTOSAVE,
              static_cast<UINT>(data.autosaveInterval) * 1000, nullptr);
 
+    // Alarm-check timer (fixed interval, not configurable)
+    KillTimer(m_hAppWnd, IDT_ALARM);
+    SetTimer(m_hAppWnd, IDT_ALARM, ALARM_CHECK_INTERVAL_MS, nullptr);
+
     // Apply default layout to all existing notes and repaint
     NoteLayout defaultLayout;
     defaultLayout.backgroundColor = data.bgColor;
@@ -1051,4 +1069,91 @@ void Application::ChangeLanguage(const std::wstring& langCode) {
             m_noteListWindow->Show();
         }
     }
+}
+
+// ============================================================================
+// Alarms
+// ============================================================================
+
+static std::wstring FirstLinesOfText(const std::wstring& text, int maxLines, size_t maxChars) {
+    std::wstring out;
+    int lines = 0;
+    for (size_t i = 0; i < text.size() && out.size() < maxChars; ++i) {
+        wchar_t c = text[i];
+        if (c == L'\r') continue;
+        if (c == L'\n') {
+            if (++lines >= maxLines) break;
+            out += L' ';
+            continue;
+        }
+        out += c;
+    }
+    if (out.size() >= maxChars) out += L"...";
+    return out;
+}
+
+void Application::CheckDueAlarms() {
+    SYSTEMTIME now;
+    GetLocalTime(&now);
+
+    for (auto& note : m_notes) {
+        if (!note->alarm.has_value()) continue;
+        // Skip if a popup is already showing for this note
+        if (m_alarmPopups.count(note->id)) continue;
+
+        auto nextFire = AlarmScheduler::ComputeNextFireTime(*note->alarm, now);
+        if (!nextFire.has_value()) continue;
+
+        if (AlarmScheduler::CompareSysTime(*nextFire, now) <= 0) {
+            TriggerAlarm(*note);
+        }
+    }
+}
+
+void Application::TriggerAlarm(NoteData& note) {
+    if (!note.alarm.has_value()) return;
+    const auto& a = *note.alarm;
+
+    std::wstring title = note.title;
+    if (title.empty()) {
+        title = FirstLinesOfText(note.text, 1, 80);
+        if (title.empty()) title = Ls(L"note.untitled");
+    }
+    std::wstring preview = FirstLinesOfText(note.text, 3, 200);
+
+    int stackIndex = static_cast<int>(m_alarmPopups.size());
+    auto popup = new AlarmPopupWindow(m_hInst, note.id, title, preview,
+                                      a.popup && a.sound, a.soundFile,
+                                      a.snoozeMinutes, stackIndex);
+    if (!popup->Create()) {
+        delete popup;
+        return;
+    }
+    m_alarmPopups[note.id] = popup;
+}
+
+void Application::OnAlarmPopupClosed(uint64_t noteId, AlarmAction action) {
+    m_alarmPopups.erase(noteId);
+
+    NoteData* note = FindNoteData(noteId);
+    if (!note || !note->alarm.has_value()) return;
+
+    SYSTEMTIME now;
+    GetLocalTime(&now);
+
+    switch (action) {
+        case AlarmAction::Dismiss:
+            AlarmScheduler::AdvanceAfterFire(note->alarm.value());
+            break;
+        case AlarmAction::Snooze:
+            AlarmScheduler::AdvanceAfterSnooze(note->alarm.value(), now);
+            break;
+        case AlarmAction::OpenNote:
+            AlarmScheduler::AdvanceAfterFire(note->alarm.value());
+            BringNoteToFront(noteId);
+            break;
+    }
+
+    MarkDirty();
+    RefreshNoteList();
 }

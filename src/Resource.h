@@ -1,7 +1,7 @@
 #pragma once
 
 // Version
-#define ULTRANOTE_VERSION       L"v1.0.0"
+#define ULTRANOTE_VERSION       L"v1.1.0"
 
 // Icons
 #define IDI_APP                 101
@@ -21,6 +21,7 @@
 #define IDI_GROUP               115
 #define IDI_FOLDER              116
 #define IDI_ATTACHMENT          117
+#define IDI_ALARM               118
 
 // Tray context menu
 #define IDR_TRAY_MENU           200
@@ -46,6 +47,7 @@
 #define ID_NOTE_RENAME          217
 #define ID_NOTE_ATTACHMENTS     218
 #define ID_NOTE_SEARCH          219
+#define ID_NOTE_ALARM           229
 
 // Note list menu bar
 #define IDR_NOTELIST_MENU       220
@@ -162,3 +164,63 @@
 #define AUTOSAVE_INTERVAL_MS    30000
 #define IDT_PREVIEW             2
 #define PREVIEW_DELAY_MS        400
+#define IDT_ALARM               3
+#define ALARM_CHECK_INTERVAL_MS 30000
+
+// Alarm popup window control IDs (700-720 for popup; 720-770 for config dialog)
+#define IDC_ALARM_DISMISS       701
+#define IDC_ALARM_SNOOZE        702
+#define IDC_ALARM_OPEN          703
+
+// UpDown spinner controls attached to numeric edits in the config dialog
+#define IDC_ALARM_EVERY_N_SPIN      704
+#define IDC_ALARM_MONTHLY_DAY_SPIN  705
+#define IDC_ALARM_MONTHLY_NTH_SPIN  706
+#define IDC_ALARM_QUARTER_DAY_SPIN  707
+#define IDC_ALARM_END_COUNT_SPIN    708
+#define IDC_ALARM_SNOOZE_SPIN       709
+
+// Alarm config dialog control IDs
+#define IDC_ALARM_START_DATE        720
+#define IDC_ALARM_START_TIME        721
+#define IDC_ALARM_KIND_ONCE         722
+#define IDC_ALARM_KIND_DAILY        723
+#define IDC_ALARM_KIND_EVERY_N      724
+#define IDC_ALARM_EVERY_N_EDIT      725
+#define IDC_ALARM_KIND_WEEKLY       726
+#define IDC_ALARM_WD_MON            727
+#define IDC_ALARM_WD_TUE            728
+#define IDC_ALARM_WD_WED            729
+#define IDC_ALARM_WD_THU            730
+#define IDC_ALARM_WD_FRI            731
+#define IDC_ALARM_WD_SAT            732
+#define IDC_ALARM_WD_SUN            733
+#define IDC_ALARM_KIND_MONTHLY      734
+#define IDC_ALARM_MONTHLY_DAY_RB    735
+#define IDC_ALARM_MONTHLY_DAY_EDIT  736
+#define IDC_ALARM_MONTHLY_NTH_RB    737
+#define IDC_ALARM_MONTHLY_NTH_EDIT  738
+#define IDC_ALARM_MONTHLY_NTH_COMBO 739
+#define IDC_ALARM_KIND_QUARTERLY    740
+#define IDC_ALARM_QUARTER_DAY_EDIT  741
+#define IDC_ALARM_KIND_YEARLY       742
+#define IDC_ALARM_YEARLY_DATE       743
+#define IDC_ALARM_END_NEVER         744
+#define IDC_ALARM_END_AFTER_N       745
+#define IDC_ALARM_END_COUNT_EDIT    746
+#define IDC_ALARM_END_ON_DATE       747
+#define IDC_ALARM_END_DATE          748
+#define IDC_ALARM_POPUP_CHK         749
+#define IDC_ALARM_SOUND_CHK         750
+#define IDC_ALARM_SOUNDFILE_EDIT    752
+#define IDC_ALARM_SOUNDFILE_BTN     753
+#define IDC_ALARM_SNOOZE_EDIT       754
+#define IDC_ALARM_PAUSED_CHK        755
+#define IDC_ALARM_PREVIEW           756
+#define IDC_ALARM_OK                757
+#define IDC_ALARM_CANCEL            758
+#define IDC_ALARM_REMOVE            759
+
+// Header context menu (column visibility toggle) — reserved range 320..329 (one per Column enum value)
+#define ID_NL_COLVIS_BASE           320
+#define ID_NL_COLVIS_MAX            329

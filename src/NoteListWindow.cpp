@@ -6,6 +6,7 @@
 #include "Storage.h"
 #include "Utils.h"
 #include "Resource.h"
+#include "AlarmScheduler.h"
 #include <windowsx.h>
 #include <uxtheme.h>
 #include <ctime>
@@ -278,6 +279,16 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
 
+            // Column visibility toggle (from header right-click menu)
+            if (id >= ID_NL_COLVIS_BASE && id <= ID_NL_COLVIS_MAX) {
+                int colIdx = id - ID_NL_COLVIS_BASE;
+                if (colIdx >= 0 && colIdx < COL_COUNT) {
+                    SetColumnVisible(colIdx, !m_columnVisible[colIdx]);
+                    SaveSettings();
+                }
+                return 0;
+            }
+
             // Folder assignment submenu
             if (id >= ID_NL_FOLDER_BASE && id <= ID_NL_FOLDER_MAX) {
                 size_t folderIdx = id - ID_NL_FOLDER_BASE;
@@ -468,6 +479,27 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                 bool selected = (ListView_GetItemState(m_hListView, itemIdx, LVIS_SELECTED) & LVIS_SELECTED) != 0;
                                 if (!selected && m_zebraStriping && (itemIdx % 2 == 1)) {
                                     cd->clrTextBk = RGB(245, 245, 245);
+                                }
+
+                                // Highlight rows with an alarm firing today
+                                if (!selected) {
+                                    LVITEMW it = {};
+                                    it.mask = LVIF_PARAM;
+                                    it.iItem = itemIdx;
+                                    if (ListView_GetItem(m_hListView, &it)) {
+                                        NoteData* note = Application::Get().FindNoteData(
+                                            static_cast<uint64_t>(it.lParam));
+                                        if (note && note->alarm.has_value() && !note->alarm->paused) {
+                                            SYSTEMTIME now; GetLocalTime(&now);
+                                            auto next = AlarmScheduler::ComputeNextFireTime(*note->alarm, now);
+                                            if (next.has_value() &&
+                                                next->wYear == now.wYear &&
+                                                next->wMonth == now.wMonth &&
+                                                next->wDay == now.wDay) {
+                                                cd->clrText = RGB(200, 30, 30);
+                                            }
+                                        }
+                                    }
                                 }
                                 return CDRF_NOTIFYSUBITEMDRAW;
                             }
@@ -973,6 +1005,13 @@ LRESULT CALLBACK NoteListWindow::HeaderSubclassProc(
         }
         return result;
     }
+    if (msg == WM_RBUTTONUP) {
+        // Show column-visibility context menu regardless of hit location
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        ClientToScreen(hwnd, &pt);
+        if (self) self->ShowHeaderContextMenu(pt.x, pt.y);
+        return 0;
+    }
     if (msg == WM_CAPTURECHANGED || msg == WM_CANCELMODE) {
         if (self) self->m_headerMouseDown = false;
     }
@@ -1165,10 +1204,31 @@ void NoteListWindow::SetupColumns() {
     col.pszText = const_cast<LPWSTR>(L"");
     ListView_InsertColumn(m_hListView, COL_ATTACH, &col);
 
-    // Visual order: Attach first, then the rest
+    col.fmt = LVCFMT_LEFT;
+    col.cx = 130;
+    col.pszText = const_cast<LPWSTR>(Ls(L"notelist.col_next_alarm").c_str());
+    ListView_InsertColumn(m_hListView, COL_NEXT_ALARM, &col);
+
+    col.cx = 150;
+    col.pszText = const_cast<LPWSTR>(Ls(L"notelist.col_interval").c_str());
+    ListView_InsertColumn(m_hListView, COL_INTERVAL, &col);
+
+    col.cx = 60;
+    col.fmt = LVCFMT_CENTER;
+    col.pszText = const_cast<LPWSTR>(Ls(L"notelist.col_alarm_status").c_str());
+    ListView_InsertColumn(m_hListView, COL_ALARM_STATUS, &col);
+
+    // Visual order: Attach first, then the rest (alarm columns appended at the end)
     int order[COL_COUNT] = { COL_ATTACH, COL_TITLE, COL_TEXT, COL_FOLDER,
-                             COL_HIDDEN, COL_ONTOP, COL_CREATED };
+                             COL_HIDDEN, COL_ONTOP, COL_CREATED,
+                             COL_NEXT_ALARM, COL_INTERVAL, COL_ALARM_STATUS };
     ListView_SetColumnOrderArray(m_hListView, COL_COUNT, order);
+
+    // All columns visible by default
+    for (int i = 0; i < COL_COUNT; ++i) {
+        m_columnVisible[i] = true;
+        m_columnSavedWidths[i] = ListView_GetColumnWidth(m_hListView, i);
+    }
 }
 
 void NoteListWindow::PopulateList() {
@@ -1264,6 +1324,37 @@ void NoteListWindow::PopulateList() {
         // Attachment indicator
         if (!note.attachments.empty())
             ListView_SetItemText(m_hListView, idx, COL_ATTACH, const_cast<LPWSTR>(L"\x1"));
+
+        // Alarm columns
+        if (note.alarm.has_value()) {
+            SYSTEMTIME now;
+            GetLocalTime(&now);
+            auto next = AlarmScheduler::ComputeNextFireTime(*note.alarm, now);
+
+            std::wstring nextStr;
+            std::wstring statusStr;
+            if (!next.has_value()) {
+                nextStr = Ls(L"alarm.status.expired_short");
+                statusStr = L"\u25CB"; // hollow circle
+            } else {
+                wchar_t dateBuf[64], timeBuf[32];
+                GetDateFormatW(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &*next, nullptr, dateBuf, 64);
+                GetTimeFormatW(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &*next, nullptr, timeBuf, 32);
+                nextStr = std::wstring(dateBuf) + L" " + timeBuf;
+
+                // Status symbol: paused = hollow, else solid
+                if (note.alarm->paused) statusStr = L"\u25CB"; // hollow circle
+                else statusStr = L"\u25CF"; // solid circle
+            }
+
+            ListView_SetItemText(m_hListView, idx, COL_NEXT_ALARM,
+                                 const_cast<LPWSTR>(nextStr.c_str()));
+            std::wstring intervalStr = AlarmScheduler::DescribeInterval(*note.alarm);
+            ListView_SetItemText(m_hListView, idx, COL_INTERVAL,
+                                 const_cast<LPWSTR>(intervalStr.c_str()));
+            ListView_SetItemText(m_hListView, idx, COL_ALARM_STATUS,
+                                 const_cast<LPWSTR>(statusStr.c_str()));
+        }
 
         ++insertIdx;
     }
@@ -1391,23 +1482,23 @@ void NoteListWindow::LoadSettings() {
 
     // Column widths
     if (m_hListView) {
-        const wchar_t* keys[] = {
-            L"notelist.col0_width", L"notelist.col1_width",
-            L"notelist.col2_width", L"notelist.col3_width",
-            L"notelist.col4_width", L"notelist.col5_width",
-            L"notelist.col6_width"
-        };
         for (int i = 0; i < COL_COUNT; ++i) {
-            auto it = settings.find(keys[i]);
-            if (it != settings.end() && it->second > 20)
+            wchar_t key[40];
+            wsprintfW(key, L"notelist.col%d_width", i);
+            auto it = settings.find(key);
+            if (it != settings.end() && it->second > 20) {
                 ListView_SetColumnWidth(m_hListView, i, it->second);
+                m_columnSavedWidths[i] = it->second;
+            }
         }
 
-        // Column order (restore user's drag & drop arrangement)
+        // Column order (restore user's drag & drop arrangement).
+        // If any index is missing (e.g. pre-Phase-7 settings with only 7 columns),
+        // discard the saved order entirely and keep the SetupColumns default.
         bool hasOrder = true;
         int order[COL_COUNT] = {};
         for (int i = 0; i < COL_COUNT; ++i) {
-            wchar_t key[32];
+            wchar_t key[40];
             wsprintfW(key, L"notelist.col%d_order", i);
             auto it = settings.find(key);
             if (it == settings.end()) { hasOrder = false; break; }
@@ -1415,6 +1506,16 @@ void NoteListWindow::LoadSettings() {
         }
         if (hasOrder) {
             ListView_SetColumnOrderArray(m_hListView, COL_COUNT, order);
+        }
+
+        // Column visibility (default: all visible)
+        for (int i = 0; i < COL_COUNT; ++i) {
+            wchar_t key[40];
+            wsprintfW(key, L"notelist.col%d_visible", i);
+            auto it = settings.find(key);
+            bool visible = (it == settings.end()) ? true : (it->second != 0);
+            m_columnVisible[i] = true;  // start visible so SetColumnVisible can save width
+            SetColumnVisible(i, visible);
         }
     }
 }
@@ -1434,16 +1535,24 @@ void NoteListWindow::SaveSettings() {
 
     if (m_hListView) {
         for (int i = 0; i < COL_COUNT; ++i) {
-            wchar_t key[32];
+            wchar_t key[40];
+            // Save the visible width for shown columns; for hidden ones keep the
+            // saved width so the user's preferred size is preserved across sessions.
+            int width = m_columnVisible[i]
+                          ? ListView_GetColumnWidth(m_hListView, i)
+                          : m_columnSavedWidths[i];
             wsprintfW(key, L"notelist.col%d_width", i);
-            settings[key] = ListView_GetColumnWidth(m_hListView, i);
+            settings[key] = width;
+
+            wsprintfW(key, L"notelist.col%d_visible", i);
+            settings[key] = m_columnVisible[i] ? 1 : 0;
         }
 
         // Save column order
         int order[COL_COUNT] = {};
         ListView_GetColumnOrderArray(m_hListView, COL_COUNT, order);
         for (int i = 0; i < COL_COUNT; ++i) {
-            wchar_t key[32];
+            wchar_t key[40];
             wsprintfW(key, L"notelist.col%d_order", i);
             settings[key] = order[i];
         }
@@ -1465,6 +1574,58 @@ void NoteListWindow::SortByColumn(int col) {
         m_sortAscending = true;
     }
     ApplyCurrentSort();
+}
+
+bool NoteListWindow::IsColumnVisible(int col) const {
+    if (col < 0 || col >= COL_COUNT) return false;
+    return m_columnVisible[col];
+}
+
+void NoteListWindow::SetColumnVisible(int col, bool visible) {
+    if (col < 0 || col >= COL_COUNT || !m_hListView) return;
+    if (m_columnVisible[col] == visible) return;
+
+    static const int defaultWidths[COL_COUNT] = {
+        /*TITLE*/ 150, /*TEXT*/ 200, /*FOLDER*/ 100, /*HIDDEN*/ 70, /*ONTOP*/ 70,
+        /*CREATED*/ 130, /*ATTACH*/ 30,
+        /*NEXT_ALARM*/ 130, /*INTERVAL*/ 150, /*ALARM_STATUS*/ 60
+    };
+
+    if (!visible) {
+        // Hide: remember current width, set width to 0
+        int cur = ListView_GetColumnWidth(m_hListView, col);
+        if (cur > 0) m_columnSavedWidths[col] = cur;
+        ListView_SetColumnWidth(m_hListView, col, 0);
+    } else {
+        // Show: restore saved width (or default if none remembered)
+        int w = m_columnSavedWidths[col];
+        if (w <= 20) w = defaultWidths[col];
+        ListView_SetColumnWidth(m_hListView, col, w);
+    }
+    m_columnVisible[col] = visible;
+}
+
+void NoteListWindow::ShowHeaderContextMenu(int screenX, int screenY) {
+    HMENU hMenu = CreatePopupMenu();
+    if (!hMenu) return;
+
+    static const wchar_t* const kColKeys[COL_COUNT] = {
+        L"notelist.col_title",       L"notelist.col_text",
+        L"notelist.col_folder",      L"notelist.col_hidden",
+        L"notelist.col_ontop",       L"notelist.col_created",
+        L"notelist.col_attach",      L"notelist.col_next_alarm",
+        L"notelist.col_interval",    L"notelist.col_alarm_status"
+    };
+
+    for (int i = 0; i < COL_COUNT; ++i) {
+        UINT flags = MF_STRING;
+        if (m_columnVisible[i]) flags |= MF_CHECKED;
+        AppendMenuW(hMenu, flags, ID_NL_COLVIS_BASE + i, Ls(kColKeys[i]).c_str());
+    }
+
+    SetForegroundWindow(m_hwnd);
+    TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, screenX, screenY, 0, m_hwnd, nullptr);
+    DestroyMenu(hMenu);
 }
 
 void NoteListWindow::ApplyCurrentSort() {
@@ -1529,6 +1690,35 @@ int CALLBACK NoteListWindow::CompareFunc(LPARAM lp1, LPARAM lp2, LPARAM sortPara
         case COL_ONTOP:
             result = static_cast<int>(n1->layout.alwaysOnTop) - static_cast<int>(n2->layout.alwaysOnTop);
             break;
+        case COL_NEXT_ALARM: {
+            // Notes without a future alarm sort to the end regardless of direction
+            SYSTEMTIME now; GetLocalTime(&now);
+            auto f1 = n1->alarm.has_value() ? AlarmScheduler::ComputeNextFireTime(*n1->alarm, now) : std::nullopt;
+            auto f2 = n2->alarm.has_value() ? AlarmScheduler::ComputeNextFireTime(*n2->alarm, now) : std::nullopt;
+            if (!f1 && !f2) return 0;
+            if (!f1) return 1;     // n1 to the end
+            if (!f2) return -1;    // n2 to the end
+            int cmp = AlarmScheduler::CompareSysTime(*f1, *f2);
+            return ascending ? cmp : -cmp;
+        }
+        case COL_INTERVAL: {
+            std::wstring i1 = n1->alarm.has_value() ? AlarmScheduler::DescribeInterval(*n1->alarm) : L"";
+            std::wstring i2 = n2->alarm.has_value() ? AlarmScheduler::DescribeInterval(*n2->alarm) : L"";
+            if (i1.empty() && i2.empty()) return 0;
+            if (i1.empty()) return 1;
+            if (i2.empty()) return -1;
+            result = _wcsicmp(i1.c_str(), i2.c_str());
+            break;
+        }
+        case COL_ALARM_STATUS: {
+            // 0 = no alarm, 1 = paused, 2 = active
+            auto stateOf = [](const NoteData* n) {
+                if (!n->alarm.has_value()) return 0;
+                return n->alarm->paused ? 1 : 2;
+            };
+            result = stateOf(n1) - stateOf(n2);
+            break;
+        }
     }
 
     return ascending ? result : -result;

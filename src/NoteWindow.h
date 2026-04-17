@@ -10,6 +10,7 @@
 #include "Note.h"
 
 class FindInNoteDialog;
+class AlarmConfigDialog;
 
 class NoteWindow {
 public:
@@ -35,6 +36,9 @@ public:
     // In-note search (Find Next). Returns true if a match was highlighted.
     bool FindNextInNote(const std::wstring& term, bool caseSensitive);
     void OpenFindDialog();
+
+    // Alarm configuration dialog (one instance per note window)
+    void OpenAlarmDialog();
 
     // Offset window position by delta (for multi-select drag)
     void OffsetPosition(int dx, int dy);
@@ -124,6 +128,8 @@ private:
 
     // In-note find dialog (modeless, one per note window)
     std::unique_ptr<FindInNoteDialog> m_findDialog;
+    // Alarm configuration dialog (modal-ish, one per note window)
+    std::unique_ptr<AlarmConfigDialog> m_alarmDialog;
     // Tracks where the next FindNext should begin. Independent of the
     // EDIT control's current selection so repeated matches advance reliably.
     size_t m_findSearchPos = 0;
