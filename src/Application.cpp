@@ -8,8 +8,10 @@
 #include "Resource.h"
 #include "AlarmScheduler.h"
 #include "AlarmPopupWindow.h"
+#include "TrayBubbleWindow.h"
 #include <algorithm>
 #include <ctime>
+#include <optional>
 #include <shellapi.h>
 
 static const wchar_t* APP_WND_CLASS = L"UltraNoteApp";
@@ -44,6 +46,9 @@ bool Application::Initialize(HINSTANCE hInst) {
 
     if (!CreateAppWindow()) return false;
     if (!SetupTrayIcon()) return false;
+
+    m_trayBubble = std::make_unique<TrayBubbleWindow>();
+    m_trayBubble->Create(hInst);
 
     LoadMenuBitmaps();
 
@@ -86,6 +91,11 @@ void Application::Shutdown() {
         if (popup && popup->GetHwnd()) DestroyWindow(popup->GetHwnd());
     }
     m_alarmPopups.clear();
+
+    if (m_trayBubble) {
+        m_trayBubble->Destroy();
+        m_trayBubble.reset();
+    }
 
     RemoveTrayIcon();
 
@@ -135,14 +145,20 @@ LRESULT Application::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         case WM_TRAY_CALLBACK: {
             UINT trayMsg = LOWORD(lParam);
             if (trayMsg == WM_RBUTTONUP) {
+                HideTrayBubble();
                 ShowTrayMenu();
             } else if (trayMsg == WM_LBUTTONDBLCLK) {
+                HideTrayBubble();
                 auto data = SettingsDialog::LoadFromStorage();
                 switch (data.trayDoubleClick) {
                     case 1:  ToggleNoteList(); break;
                     case 2:  ShowAllNotes(); break;
                     default: CreateNewNote(); break;
                 }
+            } else if (trayMsg == NIN_POPUPOPEN) {
+                ShowTrayBubble();
+            } else if (trayMsg == NIN_POPUPCLOSE) {
+                HideTrayBubble();
             }
             return 0;
         }
@@ -210,11 +226,22 @@ bool Application::SetupTrayIcon() {
     m_nid.cbSize           = sizeof(NOTIFYICONDATA);
     m_nid.hWnd             = m_hAppWnd;
     m_nid.uID              = 1;
+    // NIF_TIP + populated szTip is required for the shell to dispatch
+    // NIN_POPUPOPEN/CLOSE hover events. Without NIF_SHOWTIP under V4 the
+    // standard tooltip is still suppressed — our custom bubble replaces it.
+    // The szTip also serves as a fallback for shells that don't support V4.
     m_nid.uFlags           = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     m_nid.uCallbackMessage = WM_TRAY_CALLBACK;
     m_nid.hIcon            = LoadIconW(m_hInst, MAKEINTRESOURCE(IDI_TRAY));
     wcscpy_s(m_nid.szTip, L"UltraNote");
-    return Shell_NotifyIconW(NIM_ADD, &m_nid) != FALSE;
+    if (!Shell_NotifyIconW(NIM_ADD, &m_nid)) return false;
+
+    // NOTIFYICON_VERSION_4: enables NIN_POPUPOPEN/CLOSE hover notifications.
+    // Changes callback lParam encoding, but our existing LOWORD(lParam)-based
+    // mouse-event dispatch continues to work (event code is still in LOWORD).
+    m_nid.uVersion = NOTIFYICON_VERSION_4;
+    Shell_NotifyIconW(NIM_SETVERSION, &m_nid);
+    return true;
 }
 
 void Application::RemoveTrayIcon() {
@@ -1156,4 +1183,66 @@ void Application::OnAlarmPopupClosed(uint64_t noteId, AlarmAction action) {
 
     MarkDirty();
     RefreshNoteList();
+}
+
+// ============================================================================
+// Tray hover bubble (custom-drawn tooltip replacement)
+// ============================================================================
+
+void Application::HideTrayBubble() {
+    if (m_trayBubble) m_trayBubble->Hide();
+}
+
+void Application::ShowTrayBubble() {
+    if (!m_trayBubble) return;
+
+    // Anchor rect: use Shell_NotifyIconGetRect (Win7+). Fall back to cursor
+    // position if the shell can't locate the icon (e.g. in the overflow area).
+    RECT iconRc = {};
+    NOTIFYICONIDENTIFIER nii = { sizeof(nii) };
+    nii.hWnd = m_hAppWnd;
+    nii.uID  = 1;
+    if (FAILED(Shell_NotifyIconGetRect(&nii, &iconRc))) {
+        POINT pt; GetCursorPos(&pt);
+        iconRc = { pt.x - 8, pt.y - 8, pt.x + 8, pt.y + 8 };
+    }
+
+    // Find the earliest upcoming fire time across all non-paused alarms.
+    SYSTEMTIME now; GetLocalTime(&now);
+    std::optional<SYSTEMTIME> earliest;
+    const NoteData* earliestNote = nullptr;
+    for (auto& note : m_notes) {
+        if (!note->alarm.has_value()) continue;
+        auto next = AlarmScheduler::ComputeNextFireTime(*note->alarm, now);
+        if (!next.has_value()) continue;
+        if (!earliest.has_value() ||
+            AlarmScheduler::CompareSysTime(*next, *earliest) < 0) {
+            earliest     = next;
+            earliestNote = note.get();
+        }
+    }
+
+    std::wstring header = L"UltraNote";
+    std::wstring body;
+    if (earliest.has_value() && earliestNote) {
+        wchar_t dateBuf[64], timeBuf[32];
+        GetDateFormatW(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &*earliest,
+                       nullptr, dateBuf, 64);
+        GetTimeFormatW(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &*earliest,
+                       nullptr, timeBuf, 32);
+        std::wstring title = earliestNote->title;
+        if (title.empty()) {
+            // Derive from first non-empty line of note text
+            const std::wstring& t = earliestNote->text;
+            size_t end = t.find_first_of(L"\r\n");
+            title = t.substr(0, end);
+            if (title.empty()) title = Ls(L"tray.bubble.untitled");
+        }
+        body = Ls(L"tray.bubble.next_alarm") + L" " +
+               std::wstring(dateBuf) + L" " + timeBuf + L"\n" + title;
+    } else {
+        body = Ls(L"tray.bubble.no_alarms");
+    }
+
+    m_trayBubble->Show(iconRc, header, body);
 }

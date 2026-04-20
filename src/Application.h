@@ -12,6 +12,7 @@
 class NoteWindow;
 class NoteListWindow;
 class AlarmPopupWindow;
+class TrayBubbleWindow;
 enum class AlarmAction;
 
 class Application {
@@ -141,5 +142,10 @@ private:
     // Active alarm popups (keyed by note id, one per note)
     std::unordered_map<uint64_t, AlarmPopupWindow*> m_alarmPopups;
 
+    // Hover-balloon for the systray icon (custom-drawn tooltip replacement)
+    std::unique_ptr<TrayBubbleWindow> m_trayBubble;
+
     void TriggerAlarm(NoteData& note);
+    void ShowTrayBubble();
+    void HideTrayBubble();
 };

@@ -20,6 +20,7 @@ set(SOURCES
     src/AlarmScheduler.cpp
     src/AlarmPopupWindow.cpp
     src/AlarmConfigDialog.cpp
+    src/TrayBubbleWindow.cpp
 )
 
 # Resource file
