@@ -597,7 +597,7 @@ void Application::RequestDeleteNote(uint64_t id) {
         if (wit != m_noteWindows.end())
             ownerWnd = wit->second->GetHwnd();
         int result = MessageBoxW(ownerWnd, Ls(L"confirm.delete_one").c_str(), L"UltraNote",
-                                  MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
+                                  MB_YESNO | MB_ICONQUESTION);
         if (result != IDYES) return;
     }
 
@@ -652,7 +652,7 @@ void Application::DeleteSelectedNotes() {
         if (wit != m_noteWindows.end())
             ownerWnd = wit->second->GetHwnd();
         int result = MessageBoxW(ownerWnd, msg.c_str(), L"UltraNote",
-                                  MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
+                                  MB_YESNO | MB_ICONQUESTION);
         if (result != IDYES) return;
     }
 

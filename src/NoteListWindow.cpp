@@ -1797,7 +1797,7 @@ void NoteListWindow::DeleteSelectedNotes() {
     }
 
     int result = MessageBoxW(m_hwnd, msg.c_str(), L"UltraNote",
-                              MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
+                              MB_YESNO | MB_ICONQUESTION);
     if (result != IDYES) return;
 
     std::vector<uint64_t> ids;
