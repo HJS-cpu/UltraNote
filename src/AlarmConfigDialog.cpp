@@ -32,11 +32,10 @@ static constexpr int kEditColLvl2  = kMargin + kSubSubIndent + 62;  // x = 110
 static constexpr int kNumEditW     = 44;
 static constexpr int kNumEditH     = kRowH - 2;
 static constexpr int kNumEditYOff  = 1;
-// Edit (+spinner) uses the same Y-offset as adjacent radios/labels so the
-// box centers align vertically — essential for visual symmetry with the
-// radio-button circles (kRowH=22 standalone radio center sits at y+11;
-// kNumEditH=20 edit at y+1 also centers at y+11).
-static constexpr int kEditYOff     = kNumEditYOff;
+// Edit (+spinner) Y-offset sits 1 px above box-center: kNumEditH=20 edit
+// at y+0 vs. adjacent kRowH=22 radio centered at y+11. User preference is
+// this slightly-above-center placement over pure box-center alignment.
+static constexpr int kEditYOff     = kNumEditYOff - 1;
 // Gap between numeric edit (right edge) and following post-label.
 static constexpr int kPostLabelGap = 4;
 
@@ -144,6 +143,41 @@ LRESULT AlarmConfigDialog::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
 
             // Any radio/checkbox change may affect enabled state and preview
             if (code == BN_CLICKED) {
+                // The seven "kind" radios are split across two WS_GROUP groups
+                // by the Monthly sub-options (MonthlyDay/MonthlyNth). Windows'
+                // BS_AUTORADIOBUTTON only auto-clears peers within the same
+                // group — so a click on Quarterly or Yearly would not uncheck
+                // Monthly. Enforce mutual exclusion across the split manually.
+                static const int kMainKindIds[] = {
+                    IDC_ALARM_KIND_ONCE, IDC_ALARM_KIND_DAILY, IDC_ALARM_KIND_EVERY_N,
+                    IDC_ALARM_KIND_WEEKLY, IDC_ALARM_KIND_MONTHLY,
+                    IDC_ALARM_KIND_QUARTERLY, IDC_ALARM_KIND_YEARLY
+                };
+                bool isMainKind = false;
+                for (int id : kMainKindIds) {
+                    if (static_cast<int>(cmd) == id) { isMainKind = true; break; }
+                }
+                if (isMainKind) {
+                    for (int id : kMainKindIds) {
+                        if (id != static_cast<int>(cmd)) {
+                            SendDlgItemMessageW(m_hwnd, id, BM_SETCHECK, BST_UNCHECKED, 0);
+                        }
+                    }
+                    // Returning to Monthly after the sub-group was cleared by
+                    // a previous Quarterly/Yearly click → restore the default
+                    // MonthlyDay selection so WriteToNote can resolve the kind.
+                    if (cmd == IDC_ALARM_KIND_MONTHLY) {
+                        bool subChecked =
+                            (SendMessageW(m_hRbMonthlyDay, BM_GETCHECK, 0, 0) == BST_CHECKED) ||
+                            (SendMessageW(m_hRbMonthlyNth, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                        if (!subChecked) {
+                            CheckRadioButton(m_hwnd,
+                                             IDC_ALARM_MONTHLY_DAY_RB,
+                                             IDC_ALARM_MONTHLY_NTH_RB,
+                                             IDC_ALARM_MONTHLY_DAY_RB);
+                        }
+                    }
+                }
                 UpdateControlStates();
                 UpdatePreview();
                 return 0;
@@ -169,7 +203,14 @@ LRESULT AlarmConfigDialog::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_DESTROY:
-            if (m_hOwner) EnableWindow(m_hOwner, TRUE);
+            if (m_hOwner) {
+                // Re-enable first, then raise — SetForegroundWindow silently
+                // fails on a disabled window. Without the explicit raise the
+                // owner stays in whatever z-order the OS picks, which can be
+                // behind other apps that grabbed focus while the dialog lived.
+                EnableWindow(m_hOwner, TRUE);
+                SetForegroundWindow(m_hOwner);
+            }
             return 0;
 
         case WM_NCDESTROY: {
@@ -298,7 +339,8 @@ void AlarmConfigDialog::CreateControls() {
     AddSeparator(m_hwnd, m_hInst, kMargin, y - kSectionGap / 2, contentW);
     m_labels.push_back(MakeStatic(m_hwnd, m_hInst, m_hFont,
                                   Ls(L"alarm.cfg.repeat").c_str(),
-                                  kMargin, y, contentW, kRowH));
+                                  kMargin, y, contentW, kRowH,
+                                  SS_CENTERIMAGE));
     y += kRowH;
 
     // Kind radio group 1 starts here (WS_GROUP)
@@ -387,18 +429,21 @@ void AlarmConfigDialog::CreateControls() {
     SendMessageW(m_hComboMonthlyWd, CB_SETCURSEL, 0, 0);
     y += kRowH + kRowGap;
 
-    // "Quartalsweise am [n] . Tag des Quartals" — Level-1 column
+    // "Quartalsweise am [n] . Tag des Quartals" — Level-1 column.
+    // Pre-label is longer than other Level-1 rows, so shift spinner + post-label
+    // 5 px right and widen the radio by the same amount to avoid truncation.
+    constexpr int kQuarterlyShift = 3;
     m_hRbQuarterly = MakeRadio(m_hwnd, m_hInst, m_hFont, IDC_ALARM_KIND_QUARTERLY,
                                Ls(L"alarm.cfg.quarterly_pre").c_str(),
-                               lvl1X, y, kEditColLvl1 - lvl1X - 4, kRowH, false);
+                               lvl1X, y, kEditColLvl1 - lvl1X - 4 + kQuarterlyShift, kRowH, false);
     m_hEditQuarterDay = MakeNumEditWithSpin(m_hwnd, m_hInst, m_hFont,
                                             IDC_ALARM_QUARTER_DAY_EDIT,
                                             IDC_ALARM_QUARTER_DAY_SPIN,
-                                            kEditColLvl1, y + kEditYOff,
+                                            kEditColLvl1 + kQuarterlyShift, y + kEditYOff,
                                             kNumEditW, kNumEditH, 1, 90);
     m_labels.push_back(MakeStatic(m_hwnd, m_hInst, m_hFont,
                                   Ls(L"alarm.cfg.quarterly_post").c_str(),
-                                  kEditColLvl1 + kNumEditW + kPostLabelGap,
+                                  kEditColLvl1 + kQuarterlyShift + kNumEditW + kPostLabelGap,
                                   y + kNumEditYOff, 220, kNumEditH));
     y += kRowH;
 
@@ -411,7 +456,8 @@ void AlarmConfigDialog::CreateControls() {
     AddSeparator(m_hwnd, m_hInst, kMargin, y - kSectionGap / 2, contentW);
     m_labels.push_back(MakeStatic(m_hwnd, m_hInst, m_hFont,
                                   Ls(L"alarm.cfg.end").c_str(),
-                                  kMargin, y, contentW, kRowH));
+                                  kMargin, y, contentW, kRowH,
+                                  SS_CENTERIMAGE));
     y += kRowH;
 
     m_hRbEndNever = MakeRadio(m_hwnd, m_hInst, m_hFont, IDC_ALARM_END_NEVER,
@@ -462,11 +508,14 @@ void AlarmConfigDialog::CreateControls() {
     y += kRowH;
 
     // "Sound-Datei: [.................................] [...]"
+    // Label needs 5 px more room; edit shifts 5 px right and shrinks by 5,
+    // keeping the browse button's left edge flush to the edit's right edge.
     m_labels.push_back(MakeStatic(m_hwnd, m_hInst, m_hFont,
                                   Ls(L"alarm.cfg.sound_file").c_str(),
-                                  lvl1X, y, 75, kRowH));
+                                  lvl1X, y, 78, kRowH,
+                                  SS_CENTERIMAGE));
     {
-        int editX   = lvl1X + 75;
+        int editX   = lvl1X + 78;
         int browseW = 30;
         int browseX = kMargin + contentW - browseW;
         int editW   = browseX - 4 - editX;
@@ -484,7 +533,7 @@ void AlarmConfigDialog::CreateControls() {
                                   kEditColLvl1 - lvl1X - 4, kNumEditH));
     m_hEditSnooze = MakeNumEditWithSpin(m_hwnd, m_hInst, m_hFont,
                                         IDC_ALARM_SNOOZE_EDIT, IDC_ALARM_SNOOZE_SPIN,
-                                        kEditColLvl1, y + kEditYOff - 1,
+                                        kEditColLvl1, y + kEditYOff,
                                         kNumEditW, kNumEditH, 1, 1440);
     m_labels.push_back(MakeStatic(m_hwnd, m_hInst, m_hFont,
                                   Ls(L"alarm.cfg.snooze_post").c_str(),
@@ -500,10 +549,29 @@ void AlarmConfigDialog::CreateControls() {
     AddSeparator(m_hwnd, m_hInst, kMargin, y - kSectionGap / 2, contentW);
     m_labels.push_back(MakeStatic(m_hwnd, m_hInst, m_hFont,
                                   Ls(L"alarm.cfg.preview").c_str(),
-                                  kMargin, y, 80, kRowH));
+                                  kMargin, y, 80, kRowH,
+                                  SS_CENTERIMAGE));
     m_hPreview = MakeStatic(m_hwnd, m_hInst, m_hFont, L"",
                             kMargin + 80, y, contentW - 80, kRowH);
     y += kRowH + kSectionGap;
+
+    // Tooltip explaining that snooze does not count toward "After N occurrences".
+    // Attached to both the radio and its count-edit so it triggers from either.
+    m_hTooltip = CreateWindowExW(0, TOOLTIPS_CLASSW, nullptr,
+        WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+        0, 0, 0, 0, m_hwnd, nullptr, m_hInst, nullptr);
+    if (m_hTooltip) {
+        std::wstring tipText = Ls(L"alarm.cfg.end_after_tooltip");
+        TTTOOLINFOW ti = { sizeof(ti) };
+        ti.uFlags   = TTF_IDISHWND | TTF_SUBCLASS;
+        ti.hwnd     = m_hwnd;
+        ti.lpszText = const_cast<LPWSTR>(tipText.c_str());
+        ti.uId      = reinterpret_cast<UINT_PTR>(m_hRbEndAfterN);
+        SendMessageW(m_hTooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+        ti.uId      = reinterpret_cast<UINT_PTR>(m_hEditEndCount);
+        SendMessageW(m_hTooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+        SendMessageW(m_hTooltip, TTM_SETMAXTIPWIDTH, 0, 320);
+    }
 
     // Buttons
     int btnW = 90;
@@ -717,10 +785,17 @@ void AlarmConfigDialog::UpdateControlStates() {
     EnableWindow(m_hComboMonthlyWd, monthly && monthlyNth);
     EnableWindow(m_hEditQuarterDay, quarterly);
 
+    // "Ends:" section is meaningless for a Once alarm (it fires exactly once
+    // regardless of these settings). Disable the whole group in that case.
+    bool isOnce = SendMessageW(m_hRbOnce, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    EnableWindow(m_hRbEndNever,  !isOnce);
+    EnableWindow(m_hRbEndAfterN, !isOnce);
+    EnableWindow(m_hRbEndOnDate, !isOnce);
+
     bool endAfterN = SendMessageW(m_hRbEndAfterN, BM_GETCHECK, 0, 0) == BST_CHECKED;
     bool endOnDate = SendMessageW(m_hRbEndOnDate, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    EnableWindow(m_hEditEndCount, endAfterN);
-    EnableWindow(m_hEndDate, endOnDate);
+    EnableWindow(m_hEditEndCount, !isOnce && endAfterN);
+    EnableWindow(m_hEndDate,      !isOnce && endOnDate);
 
     bool sound = SendMessageW(m_hChkSound, BM_GETCHECK, 0, 0) == BST_CHECKED;
     EnableWindow(m_hEditSoundFile, sound);

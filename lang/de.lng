@@ -208,6 +208,7 @@ alarm.cfg.end=Endet:
 alarm.cfg.end_never=Nie
 alarm.cfg.end_after_pre=Nach
 alarm.cfg.end_after_post=Wiederholungen
+alarm.cfg.end_after_tooltip=Das Schlummern zählt nicht als Wiederholung. Gezählt werden nur tatsächlich beantwortete Alarme (Schließen oder Notiz öffnen).
 alarm.cfg.end_on_date=Am
 alarm.cfg.notify=Benachrichtigung:
 alarm.cfg.popup=Popup

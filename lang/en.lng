@@ -208,6 +208,7 @@ alarm.cfg.end=Ends:
 alarm.cfg.end_never=Never
 alarm.cfg.end_after_pre=After
 alarm.cfg.end_after_post=occurrences
+alarm.cfg.end_after_tooltip=Snoozing does not count as an occurrence. Only alarms that were actually acknowledged (Dismiss or Open Note) are counted.
 alarm.cfg.end_on_date=On
 alarm.cfg.notify=Notification:
 alarm.cfg.popup=Popup

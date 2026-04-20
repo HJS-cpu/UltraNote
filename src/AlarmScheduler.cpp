@@ -288,11 +288,23 @@ std::optional<SYSTEMTIME> AlarmScheduler::ComputeNextFireTime(const AlarmConfig&
 
     case AlarmKind::Quarterly: {
         int qd = (std::clamp)(alarm.quarterDay, 1, 90);
-        int y = now.wYear;
-        int qStart = QuarterStartMonth(now.wMonth);
-        if (CompareSysTime(alarm.startTime, now) > 0) {
+        int nowQStart = QuarterStartMonth(now.wMonth);
+        int stQStart  = QuarterStartMonth(alarm.startTime.wMonth);
+        // Global quarter index (year*4 + 0..3) for ordering across year boundaries.
+        int stQIdx  = alarm.startTime.wYear * 4 + (stQStart  - 1) / 3;
+        int nowQIdx = now.wYear             * 4 + (nowQStart - 1) / 3;
+        int y;
+        int qStart;
+        if (stQIdx > nowQIdx) {
+            // startTime is in a strictly future quarter — search from there.
             y = alarm.startTime.wYear;
-            qStart = QuarterStartMonth(alarm.startTime.wMonth);
+            qStart = stQStart;
+        } else {
+            // startTime falls in the current (or a past) quarter — never fire
+            // retroactively in the same quarter; skip to the quarter after now's.
+            y = now.wYear;
+            qStart = nowQStart + 3;
+            if (qStart > 12) { qStart -= 12; ++y; }
         }
         for (int i = 0; i < 8; ++i) {
             SYSTEMTIME qFirst = MakeDate(y, qStart, 1, alarm.startTime);

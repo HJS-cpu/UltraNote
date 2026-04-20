@@ -77,6 +77,8 @@ private:
     HWND m_hBtnCancel     = nullptr;
     HWND m_hBtnRemove     = nullptr;
 
+    HWND m_hTooltip       = nullptr;
+
     // Label controls (kept for destroy)
     std::vector<HWND> m_labels;
 
