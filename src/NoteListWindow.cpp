@@ -7,6 +7,7 @@
 #include "Utils.h"
 #include "Resource.h"
 #include "AlarmScheduler.h"
+#include "AlarmConfigDialog.h"
 #include <windowsx.h>
 #include <uxtheme.h>
 #include <ctime>
@@ -329,6 +330,9 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 case ID_NL_NOTE_RENAME:
                     RenameSelectedNote();
                     return 0;
+                case ID_NL_NOTE_ALARM:
+                    OpenAlarmForSelected();
+                    return 0;
                 case ID_NL_NOTE_DELETE:
                     DeleteSelectedNotes();
                     return 0;
@@ -617,6 +621,7 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     case ID_NL_NOTE_EDIT:   key = L"notelist.tb_edit";     break;
                     case ID_NL_NOTE_DELETE:  key = L"notelist.tb_delete";   break;
                     case ID_NL_NOTE_RENAME:  key = L"notelist.tb_rename";   break;
+                    case ID_NL_NOTE_ALARM:  key = L"notelist.tb_alarm";    break;
                     case ID_NL_SHOW_ALL:    key = L"notelist.tb_show_all"; break;
                     case ID_NL_HIDE_ALL:    key = L"notelist.tb_hide_all"; break;
                 }
@@ -876,7 +881,7 @@ void NoteListWindow::CreateToolbar() {
     // Create image list with shell stock icons
     int cx = GetSystemMetrics(SM_CXSMICON);
     int cy = GetSystemMetrics(SM_CYSMICON);
-    m_hToolbarImages = ImageList_Create(cx, cy, ILC_COLOR32, 6, 1);
+    m_hToolbarImages = ImageList_Create(cx, cy, ILC_COLOR32, 7, 1);
 
     // Icon sources: -1 = resource icon, otherwise SHSTOCKICONID
     struct { int siid; UINT resId; } icons[] = {
@@ -886,6 +891,7 @@ void NoteListWindow::CreateToolbar() {
         { -1,                  IDI_SHOW_ALL }, // 3: Show All
         { -1,                  IDI_HIDE_ALL }, // 4: Hide All
         { SIID_DOCASSOC,       0 },            // 5: Rename
+        { -1,                  IDI_ALARM },    // 6: Alarm
     };
     for (auto& icon : icons) {
         HBITMAP hBmp = nullptr;
@@ -907,6 +913,7 @@ void NoteListWindow::CreateToolbar() {
         { 0, ID_NL_NOTE_NEW,    TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
         { 1, ID_NL_NOTE_EDIT,   TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
         { 5, ID_NL_NOTE_RENAME, TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
+        { 6, ID_NL_NOTE_ALARM,  TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
         { 2, ID_NL_NOTE_DELETE,  TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
         { 0, 0,                 0,               BTNS_SEP,    {0}, 0, 0 },
         { 3, ID_NL_SHOW_ALL,    TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
@@ -1752,6 +1759,32 @@ void NoteListWindow::EditSelectedNote() {
     Application::Get().BringNoteToFront(id, enterEdit);
 }
 
+void NoteListWindow::OpenAlarmForSelected() {
+    // Only single-selection — the alarm dialog configures exactly one note.
+    if (ListView_GetSelectedCount(m_hListView) != 1) return;
+
+    int idx = ListView_GetNextItem(m_hListView, -1, LVNI_SELECTED);
+    if (idx < 0) return;
+
+    LVITEMW item = {};
+    item.mask  = LVIF_PARAM;
+    item.iItem = idx;
+    ListView_GetItem(m_hListView, &item);
+    uint64_t id = static_cast<uint64_t>(item.lParam);
+
+    // Reuse existing dialog only if its HWND is still valid AND it's for the
+    // same note. Otherwise destroy/recreate so the dialog always matches the
+    // current selection. The dialog disables this window while open.
+    if (m_alarmDialog && m_alarmDialog->GetHwnd()) {
+        DestroyWindow(m_alarmDialog->GetHwnd());
+    }
+    m_alarmDialog.reset();
+    m_alarmDialog = std::make_unique<AlarmConfigDialog>(m_hInst, m_hwnd, id);
+    if (!m_alarmDialog->Create()) {
+        m_alarmDialog.reset();
+    }
+}
+
 void NoteListWindow::DeleteSelectedNotes() {
     int count = ListView_GetSelectedCount(m_hListView);
     if (count <= 0) return;
@@ -1911,6 +1944,9 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
     }
     AppendMenuW(hPopup, MF_POPUP, reinterpret_cast<UINT_PTR>(hFolderSub),
                 Ls(L"notelist.set_folder").c_str());
+
+    AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hPopup, singleFlag, ID_NL_NOTE_ALARM, Ls(L"notelist.alarm").c_str());
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hPopup, MF_STRING, ID_NL_NOTE_DELETE, Ls(L"notelist.delete").c_str());

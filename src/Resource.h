@@ -59,6 +59,7 @@
 #define ID_NL_HIDE_ALL          226
 #define ID_NL_NOTE_RENAME       227
 #define ID_NL_NOTE_SETFOLDER    228
+#define ID_NL_NOTE_ALARM        230
 
 // Preview toggle
 #define ID_NL_PREVIEW           310

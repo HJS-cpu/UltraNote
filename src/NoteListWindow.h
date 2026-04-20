@@ -3,8 +3,11 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
+
+class AlarmConfigDialog;
 
 class NoteListWindow {
 public:
@@ -45,6 +48,7 @@ private:
     void EditSelectedNote();
     void DeleteSelectedNotes();
     void RenameSelectedNote();
+    void OpenAlarmForSelected();
     void ShowSetFolderMenu();
     void ToggleNoteHidden(uint64_t noteId);
     void ToggleNoteAlwaysOnTop(uint64_t noteId);
@@ -145,4 +149,8 @@ private:
         std::wstring title;
         std::wstring value;
     };
+
+    // Alarm dialog opened for the note list's currently selected note. Owner
+    // is this window, so the list is disabled while the dialog is modal-ish.
+    std::unique_ptr<AlarmConfigDialog> m_alarmDialog;
 };
