@@ -21,6 +21,7 @@ set(SOURCES
     src/AlarmPopupWindow.cpp
     src/AlarmConfigDialog.cpp
     src/TrayBubbleWindow.cpp
+    src/HeaderDragOverlay.cpp
 )
 
 # Resource file

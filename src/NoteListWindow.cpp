@@ -8,10 +8,12 @@
 #include "Resource.h"
 #include "AlarmScheduler.h"
 #include "AlarmConfigDialog.h"
+#include "HeaderDragOverlay.h"
 #include <windowsx.h>
 #include <uxtheme.h>
 #include <ctime>
 #include <algorithm>
+#include <vector>
 
 static const wchar_t* NOTELIST_WND_CLASS = L"UltraNoteListWindow";
 
@@ -789,6 +791,10 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         case WM_TIMER: {
+            if (wParam == IDT_HEADER_DRAG) {
+                UpdateHeaderDragOverlay();
+                return 0;
+            }
             if (wParam == IDT_PREVIEW && m_previewEnabled && m_hListView) {
                 POINT pt;
                 GetCursorPos(&pt);
@@ -913,8 +919,8 @@ void NoteListWindow::CreateToolbar() {
         { 0, ID_NL_NOTE_NEW,    TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
         { 1, ID_NL_NOTE_EDIT,   TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
         { 5, ID_NL_NOTE_RENAME, TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
+        { 2, ID_NL_NOTE_DELETE, TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
         { 6, ID_NL_NOTE_ALARM,  TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
-        { 2, ID_NL_NOTE_DELETE,  TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
         { 0, 0,                 0,               BTNS_SEP,    {0}, 0, 0 },
         { 3, ID_NL_SHOW_ALL,    TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
         { 4, ID_NL_HIDE_ALL,    TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
@@ -1026,6 +1032,96 @@ LRESULT CALLBACK NoteListWindow::HeaderSubclassProc(
         RemoveWindowSubclass(hwnd, HeaderSubclassProc, 0);
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+// ============================================================================
+// Header drag-drop feedback (ATnotes-style red insertion arrows)
+// ============================================================================
+
+LRESULT CALLBACK NoteListWindow::ListViewSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR /*subId*/, DWORD_PTR refData)
+{
+    auto* self = reinterpret_cast<NoteListWindow*>(refData);
+    if (msg == WM_NOTIFY && self) {
+        auto* nm = reinterpret_cast<NMHDR*>(lParam);
+        if (nm->code == HDN_BEGINDRAG) {
+            auto* hd = reinterpret_cast<NMHEADERW*>(lParam);
+            self->OnHeaderBeginDrag(hd->iItem);
+        } else if (nm->code == HDN_ENDDRAG) {
+            self->OnHeaderEndDrag();
+        }
+    }
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, ListViewSubclassProc, 0);
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void NoteListWindow::OnHeaderBeginDrag(int sourceIdx) {
+    m_headerDragging   = true;
+    m_headerDragSource = sourceIdx;
+    if (!m_headerDragOverlay)
+        m_headerDragOverlay = std::make_unique<HeaderDragOverlay>(m_hInst);
+    SetTimer(m_hwnd, IDT_HEADER_DRAG, HEADER_DRAG_POLL_MS, nullptr);
+    UpdateHeaderDragOverlay();
+}
+
+void NoteListWindow::OnHeaderEndDrag() {
+    m_headerDragging   = false;
+    m_headerDragSource = -1;
+    KillTimer(m_hwnd, IDT_HEADER_DRAG);
+    if (m_headerDragOverlay) m_headerDragOverlay->Hide();
+}
+
+void NoteListWindow::UpdateHeaderDragOverlay() {
+    if (!m_headerDragging || !m_headerDragOverlay || !m_hListView) return;
+
+    HWND hHeader = ListView_GetHeader(m_hListView);
+    if (!hHeader) return;
+
+    int count = Header_GetItemCount(hHeader);
+    if (count <= 0) { m_headerDragOverlay->Hide(); return; }
+
+    POINT pt;
+    if (!GetCursorPos(&pt)) return;
+    POINT ptHdr = pt;
+    ScreenToClient(hHeader, &ptHdr);
+
+    // Visual order → logical-index array
+    std::vector<int> order(static_cast<size_t>(count));
+    Header_GetOrderArray(hHeader, count, order.data());
+
+    // Determine insertion slot (0..count). Slot i means: insert before visual item i.
+    int insertSlot = count;
+    for (int i = 0; i < count; ++i) {
+        RECT rc;
+        Header_GetItemRect(hHeader, order[i], &rc);
+        int mid = (rc.left + rc.right) / 2;
+        if (ptHdr.x < mid) { insertSlot = i; break; }
+    }
+
+    // X of the gap in header client coordinates
+    int gapXClient;
+    if (insertSlot == 0) {
+        RECT rc; Header_GetItemRect(hHeader, order[0], &rc);
+        gapXClient = rc.left;
+    } else if (insertSlot >= count) {
+        RECT rc; Header_GetItemRect(hHeader, order[count - 1], &rc);
+        gapXClient = rc.right;
+    } else {
+        RECT rcL; Header_GetItemRect(hHeader, order[insertSlot - 1], &rcL);
+        RECT rcR; Header_GetItemRect(hHeader, order[insertSlot],     &rcR);
+        gapXClient = (rcL.right + rcR.left) / 2;
+    }
+
+    POINT gap = { gapXClient, 0 };
+    ClientToScreen(hHeader, &gap);
+
+    RECT hdrRc;
+    GetWindowRect(hHeader, &hdrRc);
+
+    m_headerDragOverlay->Show(gap.x, hdrRc.top, hdrRc.bottom);
 }
 
 void NoteListWindow::FocusSearchField() {
@@ -1160,6 +1256,12 @@ void NoteListWindow::CreateListView() {
         SetWindowSubclass(hHeader, HeaderSubclassProc, 0,
                           reinterpret_cast<DWORD_PTR>(this));
     }
+
+    // Subclass the ListView itself to observe HDN_BEGINDRAG/HDN_ENDDRAG
+    // (header notifications are sent to the header's parent = listview, and are
+    // not reflected further up to our NoteListWindow).
+    SetWindowSubclass(m_hListView, ListViewSubclassProc, 0,
+                      reinterpret_cast<DWORD_PTR>(this));
 
     // Default sort by title column (ascending)
     m_sortColumn = COL_TITLE;

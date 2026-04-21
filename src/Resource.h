@@ -167,6 +167,8 @@
 #define PREVIEW_DELAY_MS        400
 #define IDT_ALARM               3
 #define ALARM_CHECK_INTERVAL_MS 30000
+#define IDT_HEADER_DRAG         4
+#define HEADER_DRAG_POLL_MS     25
 
 // Alarm popup window control IDs (700-720 for popup; 720-770 for config dialog)
 #define IDC_ALARM_DISMISS       701

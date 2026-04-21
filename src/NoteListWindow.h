@@ -8,6 +8,7 @@
 #include <vector>
 
 class AlarmConfigDialog;
+class HeaderDragOverlay;
 
 class NoteListWindow {
 public:
@@ -76,6 +77,14 @@ private:
     static LRESULT CALLBACK HeaderSubclassProc(
         HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
         UINT_PTR subId, DWORD_PTR refData);
+    static LRESULT CALLBACK ListViewSubclassProc(
+        HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+        UINT_PTR subId, DWORD_PTR refData);
+
+    // Header drag-drop feedback (ATnotes-style red insertion arrows)
+    void OnHeaderBeginDrag(int sourceIdx);
+    void OnHeaderEndDrag();
+    void UpdateHeaderDragOverlay();
 
     HWND       m_hwnd           = nullptr;
     HWND       m_hToolbar       = nullptr;
@@ -122,6 +131,11 @@ private:
 
     // Header click tracking (to ignore spurious WM_LBUTTONUP without prior WM_LBUTTONDOWN)
     bool     m_headerMouseDown    = false;
+
+    // Header drag-drop state
+    std::unique_ptr<HeaderDragOverlay> m_headerDragOverlay;
+    bool     m_headerDragging     = false;
+    int      m_headerDragSource   = -1;
 
     // Cached display settings (refreshed on Refresh/settings change)
     bool     m_zebraStriping      = false;
