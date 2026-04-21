@@ -1,33 +1,26 @@
-## UltraNote v1.1.0 — Portable Sticky Notes for Windows
+## UltraNote v1.2.0 — Portable Sticky Notes for Windows
 
 A modern recreation of ATnotes (2005) built with pure Win32 API and C++17. Lightweight, portable, and dependency-free.
 
-### What's New in v1.1.0
+### What's New in v1.2.0
 
-**Alarm system (new):**
-- Per-note alarms with 8 repetition types: Once, Daily, Every N days, Weekly (with weekday selection), Monthly on day, Monthly on Nth weekday, Quarterly, Yearly
-- 3 end conditions: Never, After N occurrences, On specific date
-- Topmost popup notification with sound loop; Close / Snooze / Open Note actions
-- Configurable snooze minutes and paused state
-- Three new note list columns: Next alarm, Interval, Status (● active / ○ paused or expired)
-- Header context menu to toggle column visibility
-- Alarm config dialog with live preview of the next fire time
+**Alarm system polish:**
+- Alarm access from the note list toolbar and the note context menu
+- Scheduler and config-dialog UX refinements (spin-edit alignment, preview formatting, paused-state handling)
+- New alarm tray/taskbar icon artwork
 
-**Find in note (new):**
-- Per-note Find dialog (Ctrl+F equivalent via context menu) with case-sensitive toggle
-- Lazy edit mode: opening the dialog does not dirty the view
-- Pre-scroll to target line before selecting the match — minimizes viewport flash
-- Matches stay visible while the find dialog has focus (ES_NOHIDESEL)
+**Note list:**
+- ATnotes-style column drag indicator: two red triangle arrows above and below the header, joined by a red stripe at the insertion gap — replaces Windows' pale default insertion line
+- Toolbar button order polished (delete before alarm)
 
-**Note list improvements:**
-- Fixed "Unfiled" folder filter (notes with no folder assigned) with red-slashed folder icon
-- Current folder is check-marked in the note context menu (single-select only)
-- Robust note list foreground restore — handles minimized state and Windows foreground lock via AttachThreadInput
-- Rename dialog now uses Segoe UI 9pt (Win 10/11 system font) instead of MS Sans Serif
+**In-note search:**
+- New "Whole word only" option: matches are accepted only when neither neighbour is a word character (letter, digit, or underscore)
 
-**Editor bugfixes:**
-- WYSIWYG wordwrap drift between edit and view modes eliminated — EM_SETRECTNP forces edit rectangle to match view-mode DrawText
-- Cursor position jumps to end when entering edit mode on long notes (EM_SCROLLCARET after EM_SETSEL)
+**Tray:**
+- Custom hover balloon tooltip replaces the default szTip tooltip — richer layout, instant dismissal on click
+
+**UX:**
+- Delete-note confirmation now defaults to Yes (folder-delete stays defaulting to No)
 
 ### Download
 
@@ -40,7 +33,7 @@ A modern recreation of ATnotes (2005) built with pure Win32 API and C++17. Light
 - Sticky notes with drag, resize, multi-select, and always-on-top
 - Per-note alarms with flexible repetition and snooze
 - Note list with sorting, search (with highlighting), hover preview, folder management, and column visibility toggles
-- In-note find dialog with case-sensitive option
+- In-note find dialog with case-sensitive and whole-word options
 - File attachments via drag & drop
 - Clickable URLs in note text
 - Configurable initial text with date/time variables
@@ -56,5 +49,5 @@ A modern recreation of ATnotes (2005) built with pure Win32 API and C++17. Light
 
 ### Links
 
-- [Source Code](https://gitlab.com/HJS-cpu/ultranote)
-- [All Releases](https://gitlab.com/HJS-cpu/ultranote/-/releases)
+- [Source Code](https://github.com/HJS-cpu/UltraNote)
+- [All Releases](https://github.com/HJS-cpu/UltraNote/releases)
