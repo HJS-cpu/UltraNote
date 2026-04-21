@@ -28,12 +28,31 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 | **Overview** | Sortable list of all notes with title, text preview, folder, and last modified timestamp |
 | **Quick Actions** | Toggle visibility and always-on-top directly via checkboxes — list updates instantly |
 | **Hover Preview** | Hover over a note entry to preview it on screen |
-| **Toolbar** | New, Edit, Delete, Show All, Hide All with icon toolbar |
-| **Context Menu** | Right-click for rename, folder assignment, and more; multi-select aware |
+| **Toolbar** | New, Edit, Rename, Delete, Alarm, Show All, Hide All with icon toolbar |
+| **Context Menu** | Right-click for rename, folder assignment, alarm, and more; multi-select aware |
 | **Status Bar** | Shows total / filtered note count |
 | **Search & Highlight** | Live search across note titles and text; matches highlighted in orange inside opened notes, first match auto-selected on edit |
-| **Column Reordering** | Drag & drop columns in the header, order persists across sessions |
+| **Column Reordering** | Drag & drop columns in the header with red insertion-arrow indicator at the target gap; order persists across sessions |
 | **Zebra Striping** | Optional alternating row background (configurable) |
+
+### Alarms
+
+| Feature | Description |
+|---------|-------------|
+| **Per-note alarms** | Attach an alarm to any note, opened via toolbar or note context menu |
+| **Repetition** | Once, Daily, Every N days, Weekly (weekday picker), Monthly on day, Monthly on Nth weekday, Quarterly, Yearly |
+| **End conditions** | Never, After N occurrences, On specific date |
+| **Popup** | Topmost popup with sound loop; Close / Snooze / Open Note actions |
+| **Snooze & pause** | Configurable snooze minutes; pause individual alarms without losing settings |
+| **List columns** | Next alarm, Interval, Status (● active / ○ paused or expired) — visibility toggleable |
+
+### Find in Note
+
+| Feature | Description |
+|---------|-------------|
+| **Per-note dialog** | Modeless find dialog opened from the note context menu |
+| **Options** | Case-sensitive, Whole word only (word chars = letters, digits, underscore) |
+| **Wrap-around** | Continues from the top when the bottom is reached; viewport pre-scrolls to the match |
 
 ### Settings Dialog
 
@@ -98,9 +117,15 @@ UltraNote/
 │   ├── NoteWindow.h/cpp      # Sticky note window: owner-draw, drag, resize
 │   ├── NoteListWindow.h/cpp  # Note list: toolbar, ListView, sorting
 │   ├── SettingsDialog.h/cpp  # Settings dialog with 5 tabs
+│   ├── FindInNoteDialog.h/cpp # Modeless per-note find dialog
+│   ├── AlarmScheduler.h/cpp  # Alarm scheduling utility
+│   ├── AlarmPopupWindow.h/cpp # Topmost alarm popup
+│   ├── AlarmConfigDialog.h/cpp # Alarm configuration dialog
+│   ├── TrayBubbleWindow.h/cpp # Custom tray hover balloon
+│   ├── HeaderDragOverlay.h/cpp # Red arrow column-insertion indicator
 │   ├── Storage.h/cpp         # JSON persistence (hand-written parser)
 │   ├── Localization.h/cpp    # INI-based language system
-│   ├── Note.h                # Data model (NoteData, NoteLayout)
+│   ├── Note.h                # Data model (NoteData, NoteLayout, AlarmConfig)
 │   ├── Utils.h               # RAII GDI wrappers, helpers
 │   └── Resource.h            # IDs for menus, icons, controls
 ├── lang/
@@ -146,6 +171,14 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 ---
 
 ## Changelog
+
+### v1.2.0 (2026-04-21)
+- **Column drag indicator:** ATnotes-style red arrows above and below the header, connected by a red stripe, mark the insertion gap while dragging a column — replaces Windows' pale default insertion line
+- **Whole-word search:** in-note find dialog gains a "Whole word only" option; word boundary uses Unicode letter/digit/underscore
+- **Alarm access:** open the alarm config directly from the note list toolbar and the note context menu
+- **Alarm polish:** scheduler and config-dialog UX refinements (spin-edit alignment, preview formatting, paused-state handling); new alarm icon artwork
+- **Tray tooltip:** custom hover balloon window replaces the default szTip tooltip
+- **Delete default:** note-delete confirmation now defaults to Yes (folder-delete stays defaulting to No)
 
 ### v1.1.0 (2026-04-18)
 - **Alarm system:** per-note alarms with 8 repetition types (Once, Daily, Every N, Weekly, Monthly on day / Nth weekday, Quarterly, Yearly); 3 end conditions; topmost popup with sound + snooze; 3 new note list columns (Next, Interval, Status) with visibility toggle
