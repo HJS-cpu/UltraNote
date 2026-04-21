@@ -1488,7 +1488,7 @@ void NoteWindow::OpenAlarmDialog() {
     }
 }
 
-bool NoteWindow::FindNextInNote(const std::wstring& term, bool caseSensitive) {
+bool NoteWindow::FindNextInNote(const std::wstring& term, bool caseSensitive, bool wholeWord) {
     if (term.empty()) return false;
 
     // Lazily enter edit mode so we can highlight and scroll to matches.
@@ -1529,10 +1529,28 @@ bool NoteWindow::FindNextInNote(const std::wstring& term, bool caseSensitive) {
 
     if (m_findSearchPos > hay.size()) m_findSearchPos = hay.size();
 
-    size_t pos = hay.find(nd, m_findSearchPos);
+    auto isWordChar = [](wchar_t c) { return iswalnum(c) != 0 || c == L'_'; };
+    auto isWholeWordHit = [&](size_t p) {
+        if (p > 0 && isWordChar(hay[p - 1])) return false;
+        size_t end = p + nd.size();
+        if (end < hay.size() && isWordChar(hay[end])) return false;
+        return true;
+    };
+    auto findFrom = [&](size_t from) -> size_t {
+        size_t p = from;
+        while (p <= hay.size()) {
+            p = hay.find(nd, p);
+            if (p == std::wstring::npos) return std::wstring::npos;
+            if (!wholeWord || isWholeWordHit(p)) return p;
+            ++p;
+        }
+        return std::wstring::npos;
+    };
+
+    size_t pos = findFrom(m_findSearchPos);
     bool wrapped = false;
     if (pos == std::wstring::npos && m_findSearchPos > 0) {
-        pos = hay.find(nd, 0);
+        pos = findFrom(0);
         wrapped = true;
     }
 

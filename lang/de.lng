@@ -35,6 +35,7 @@ note.search=In Notiz &suchen...
 note.find_title=In Notiz suchen
 note.find_label=Suchen nach:
 note.find_case=&Groß-/Kleinschreibung beachten
+note.find_whole_word=Nur ganzes &Wort
 note.find_next=&Weiter
 note.find_close=Schließen
 

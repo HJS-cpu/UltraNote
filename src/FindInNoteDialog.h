@@ -28,14 +28,15 @@ private:
     void LayoutControls();
     void OnFindNext();
 
-    HINSTANCE   m_hInst    = nullptr;
-    NoteWindow* m_owner    = nullptr;
-    HWND        m_hwnd     = nullptr;
-    HWND        m_hLabel   = nullptr;
-    HWND        m_hEdit    = nullptr;
-    HWND        m_hCase    = nullptr;
-    HWND        m_hFindBtn = nullptr;
-    HWND        m_hCloseBtn= nullptr;
+    HINSTANCE   m_hInst     = nullptr;
+    NoteWindow* m_owner     = nullptr;
+    HWND        m_hwnd      = nullptr;
+    HWND        m_hLabel    = nullptr;
+    HWND        m_hEdit     = nullptr;
+    HWND        m_hCase     = nullptr;
+    HWND        m_hWhole    = nullptr;
+    HWND        m_hFindBtn  = nullptr;
+    HWND        m_hCloseBtn = nullptr;
 
     static constexpr UINT_PTR EDIT_SUBCLASS_ID = 1;
     static bool s_classRegistered;

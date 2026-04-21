@@ -11,6 +11,7 @@ constexpr int ID_EDIT      = 1001;
 constexpr int ID_CASE      = 1002;
 constexpr int ID_FIND      = 1003;
 constexpr int ID_CLOSE     = 1004;
+constexpr int ID_WHOLE     = 1005;
 
 constexpr int W_MARGIN   = 10;
 constexpr int W_LABEL_H  = 18;
@@ -53,9 +54,9 @@ FindInNoteDialog::~FindInNoteDialog() {
 bool FindInNoteDialog::Create() {
     if (!EnsureClassRegistered(m_hInst)) return false;
 
-    // Compute total client size from layout
+    // Compute total client size from layout (two checkboxes: case, whole-word)
     int clientH = W_MARGIN + W_LABEL_H + 2 + W_EDIT_H + W_GAP + W_CHECK_H
-                  + W_GAP + W_BTN_H + W_MARGIN;
+                  + 2 + W_CHECK_H + W_GAP + W_BTN_H + W_MARGIN;
     int clientW = W_MARGIN + W_CLIENT_W + W_MARGIN;
 
     DWORD style   = WS_POPUP | WS_CAPTION | WS_SYSMENU;
@@ -120,6 +121,11 @@ void FindInNoteDialog::CreateControls() {
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         0, 0, 0, 0, m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_CASE)), m_hInst, nullptr);
 
+    m_hWhole = CreateWindowExW(0, L"BUTTON",
+        Ls(L"note.find_whole_word").c_str(),
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        0, 0, 0, 0, m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_WHOLE)), m_hInst, nullptr);
+
     m_hFindBtn = CreateWindowExW(0, L"BUTTON",
         Ls(L"note.find_next").c_str(),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
@@ -130,7 +136,7 @@ void FindInNoteDialog::CreateControls() {
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
         0, 0, 0, 0, m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_CLOSE)), m_hInst, nullptr);
 
-    for (HWND h : { m_hLabel, m_hEdit, m_hCase, m_hFindBtn, m_hCloseBtn }) {
+    for (HWND h : { m_hLabel, m_hEdit, m_hCase, m_hWhole, m_hFindBtn, m_hCloseBtn }) {
         SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
     }
 
@@ -151,6 +157,9 @@ void FindInNoteDialog::LayoutControls() {
     y += W_EDIT_H + W_GAP;
     SetWindowPos(m_hCase, nullptr, W_MARGIN, y, W_CLIENT_W, W_CHECK_H,
                  SWP_NOZORDER);
+    y += W_CHECK_H + 2;
+    SetWindowPos(m_hWhole, nullptr, W_MARGIN, y, W_CLIENT_W, W_CHECK_H,
+                 SWP_NOZORDER);
     y += W_CHECK_H + W_GAP;
 
     int totalW = W_MARGIN + W_CLIENT_W + W_MARGIN;
@@ -167,8 +176,9 @@ void FindInNoteDialog::OnFindNext() {
     std::wstring term(len, L'\0');
     GetWindowTextW(m_hEdit, term.data(), len + 1);
 
-    bool caseSensitive = (SendMessageW(m_hCase, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    if (m_owner) m_owner->FindNextInNote(term, caseSensitive);
+    bool caseSensitive = (SendMessageW(m_hCase,  BM_GETCHECK, 0, 0) == BST_CHECKED);
+    bool wholeWord     = (SendMessageW(m_hWhole, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    if (m_owner) m_owner->FindNextInNote(term, caseSensitive, wholeWord);
 }
 
 LRESULT CALLBACK FindInNoteDialog::WndProc(HWND hwnd, UINT msg,

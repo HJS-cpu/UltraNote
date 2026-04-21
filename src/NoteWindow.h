@@ -34,7 +34,7 @@ public:
     bool IsEditing() const { return m_inEditMode; }
 
     // In-note search (Find Next). Returns true if a match was highlighted.
-    bool FindNextInNote(const std::wstring& term, bool caseSensitive);
+    bool FindNextInNote(const std::wstring& term, bool caseSensitive, bool wholeWord);
     void OpenFindDialog();
 
     // Alarm configuration dialog (one instance per note window)

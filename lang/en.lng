@@ -35,6 +35,7 @@ note.search=&Find in Note...
 note.find_title=Find in Note
 note.find_label=Find what:
 note.find_case=Match &case
+note.find_whole_word=&Whole word only
 note.find_next=&Find Next
 note.find_close=Close
 
