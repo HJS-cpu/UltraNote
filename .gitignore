@@ -29,6 +29,9 @@ cmake_install.cmake
 *.lib
 *.exp
 
+# Claude Code local state (never commit)
+.claude/
+
 # Project-internal docs (never commit)
 CLAUDE.md
 Projekt.md
