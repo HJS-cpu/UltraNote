@@ -1,7 +1,7 @@
 #pragma once
 
 // Version
-#define ULTRANOTE_VERSION       L"v1.2.0"
+#define ULTRANOTE_VERSION       L"v1.3.0"
 
 // Icons
 #define IDI_APP                 101
@@ -22,6 +22,10 @@
 #define IDI_FOLDER              116
 #define IDI_ATTACHMENT          117
 #define IDI_ALARM               118
+#define IDI_CUT                 119
+#define IDI_SELECT_ALL          120
+#define IDI_DATETIME            121
+#define IDI_INSERT_PATH         122
 
 // Tray context menu
 #define IDR_TRAY_MENU           200

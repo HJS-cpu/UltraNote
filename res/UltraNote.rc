@@ -21,6 +21,10 @@ IDI_GROUP    ICON "group.ico"
 IDI_FOLDER     ICON "folder.ico"
 IDI_ATTACHMENT ICON "attachment.ico"
 IDI_ALARM      ICON "alarm.ico"
+IDI_CUT        ICON "cut.ico"
+IDI_SELECT_ALL ICON "select all.ico"
+IDI_DATETIME   ICON "datum.ico"
+IDI_INSERT_PATH ICON "path.ico"
 
 // Tray right-click context menu
 IDR_TRAY_MENU MENU

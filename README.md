@@ -172,6 +172,11 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 
 ## Changelog
 
+### v1.3.0 (2026-04-23)
+- **In-place edit context menu:** right-click inside a note while editing opens a dedicated editor menu with Paste/Select all/Cut/Copy/Delete, a Date/Time submenu (12 strftime formats with live preview), and Insert file path via the system picker
+- **Custom edit-menu icons:** Cut, Select all, Date/Time and Insert-path now ship as dedicated `.ico` artwork; Segoe MDL2 Assets / Segoe Fluent Icons glyph rendering removed entirely
+- **Edit-mode modal guard:** `GetOpenFileNameW` no longer tears down the EDIT control (`m_editModalOpen` short-circuits `WM_KILLFOCUS`)
+
 ### v1.2.0 (2026-04-21)
 - **Column drag indicator:** ATnotes-style red arrows above and below the header, connected by a red stripe, mark the insertion gap while dragging a column — replaces Windows' pale default insertion line
 - **Whole-word search:** in-note find dialog gains a "Whole word only" option; word boundary uses Unicode letter/digit/underscore

@@ -1201,13 +1201,6 @@ void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
 
     auto& app = Application::Get();
 
-    // Segoe MDL2 Assets / Segoe Fluent Icons code points used for items
-    // that don't have a dedicated .ico in the res/ folder.
-    constexpr wchar_t GLYPH_SELECT_ALL = 0xE8B3;  // SelectAll
-    constexpr wchar_t GLYPH_CUT        = 0xE8C6;  // Cut (scissors)
-    constexpr wchar_t GLYPH_CALENDAR   = 0xE787;  // Calendar (Date/Time submenu)
-    constexpr wchar_t GLYPH_OPEN_FILE  = 0xE8E5;  // OpenFile (Insert path)
-
     auto addItem = [&](UINT id, const wchar_t* text, HBITMAP bmp, UINT flags = 0) {
         MENUITEMINFOW mii = {};
         mii.cbSize     = sizeof(mii);
@@ -1225,14 +1218,14 @@ void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
             app.GetResourceBitmap(IDI_PASTE),
             clipHasText ? 0 : MF_GRAYED);
     addItem(ID_EDIT_SELECT_ALL, Ls(L"edit.select_all").c_str(),
-            app.GetGlyphBitmap(GLYPH_SELECT_ALL),
+            app.GetResourceBitmap(IDI_SELECT_ALL),
             hasText ? 0 : MF_GRAYED);
 
     // Selection-dependent commands
     if (hasSel) {
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         addItem(ID_EDIT_CUT,    Ls(L"edit.cut").c_str(),
-                app.GetGlyphBitmap(GLYPH_CUT));
+                app.GetResourceBitmap(IDI_CUT));
         addItem(ID_EDIT_COPY,   Ls(L"edit.copy").c_str(),
                 app.GetResourceBitmap(IDI_COPY));
         addItem(ID_EDIT_DELETE, Ls(L"edit.delete").c_str(),
@@ -1296,12 +1289,12 @@ void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
         mii.hSubMenu   = hDtMenu;
         std::wstring dtLabel = Ls(L"edit.datetime");
         mii.dwTypeData = const_cast<wchar_t*>(dtLabel.c_str());
-        mii.hbmpItem   = app.GetGlyphBitmap(GLYPH_CALENDAR);
+        mii.hbmpItem   = app.GetResourceBitmap(IDI_DATETIME);
         InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
     }
 
     addItem(ID_EDIT_INSERT_PATH, Ls(L"edit.insert_path").c_str(),
-            app.GetGlyphBitmap(GLYPH_OPEN_FILE));
+            app.GetResourceBitmap(IDI_INSERT_PATH));
 
     int cmd = TrackPopupMenu(hMenu,
         TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,

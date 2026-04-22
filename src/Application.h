@@ -94,10 +94,6 @@ public:
     COLORREF  GetSearchHighlightColor() const { return m_searchHlColor; }
     HBITMAP   GetMenuBitmap(SHSTOCKICONID id);
     HBITMAP   GetResourceBitmap(UINT iconResId);
-    // Render a Segoe MDL2 Assets / Segoe Fluent Icons glyph into a menu
-    // bitmap sized to the small-icon metric. Results are cached by code
-    // point so the first draw is the only cost per glyph.
-    HBITMAP   GetGlyphBitmap(wchar_t glyph);
 
 private:
     Application() = default;
@@ -142,8 +138,6 @@ private:
     std::unordered_map<int, HBITMAP> m_menuBitmaps;
     // Cached resource icon bitmaps (resource id -> HBITMAP)
     std::unordered_map<UINT, HBITMAP> m_resBitmaps;
-    // Cached glyph bitmaps (Segoe MDL2 Assets code point -> HBITMAP)
-    std::unordered_map<wchar_t, HBITMAP> m_glyphBitmaps;
 
     // Active alarm popups (keyed by note id, one per note)
     std::unordered_map<uint64_t, AlarmPopupWindow*> m_alarmPopups;
