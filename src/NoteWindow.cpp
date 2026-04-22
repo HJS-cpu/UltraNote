@@ -3,11 +3,13 @@
 #include "FindInNoteDialog.h"
 #include "AlarmConfigDialog.h"
 #include "SettingsDialog.h"
+#include "NoteListWindow.h"
 #include "Localization.h"
 #include "Utils.h"
 #include "Resource.h"
 #include <windowsx.h>
 #include <shlwapi.h>
+#include <commdlg.h>
 #include <cwctype>
 #include <ctime>
 
@@ -905,9 +907,25 @@ LRESULT CALLBACK NoteWindow::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam
             break;
 
         case WM_CONTEXTMENU: {
-            // Show our custom note context menu instead of the default edit menu
+            // Show the edit-mode context menu (Paste / Select All / Cut / Copy /
+            // Delete / Date-Time / Insert file path) instead of the default
+            // EDIT control menu or the outer note context menu.
             POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-            self->ShowContextMenu(pt.x, pt.y);
+            // Keyboard-driven WM_CONTEXTMENU sends (-1, -1). Fall back to the
+            // caret position so the menu appears near the text cursor.
+            if (pt.x == -1 && pt.y == -1) {
+                POINT caret = {};
+                if (GetCaretPos(&caret)) {
+                    ClientToScreen(hwnd, &caret);
+                    pt = caret;
+                } else {
+                    RECT rc;
+                    GetWindowRect(hwnd, &rc);
+                    pt.x = rc.left + 8;
+                    pt.y = rc.top + 8;
+                }
+            }
+            self->ShowEditContextMenu(pt.x, pt.y);
             return 0;
         }
 
@@ -915,7 +933,9 @@ LRESULT CALLBACK NoteWindow::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam
             // Auto-save when focus leaves the edit control — but not when it
             // goes to our own in-note find dialog, or the edit mode would be
             // torn down between each "Find Next" click and the search cursor
-            // would reset to the top on every click.
+            // would reset to the top on every click. Also suppressed while a
+            // common dialog from the edit-context-menu (Insert path…) is open.
+            if (self->m_editModalOpen) break;
             HWND newFocus = reinterpret_cast<HWND>(wParam);
             HWND findHwnd = self->m_findDialog ? self->m_findDialog->GetHwnd()
                                                : nullptr;
@@ -1032,86 +1052,12 @@ void NoteWindow::HandleMenuCommand(int cmd) {
             break;
 
         case ID_NOTE_RENAME: {
-            // Create a minimal input dialog
-            struct { DLGTEMPLATE tmpl; WORD menu; WORD windowClass; WORD title; } dlg = {};
-            dlg.tmpl.style = DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU;
-            dlg.tmpl.cx = 200;
-            dlg.tmpl.cy = 70;
-
-            struct DlgData {
-                std::wstring prompt;
-                std::wstring title;
-                std::wstring value;
-            } data;
-            data.prompt = Ls(L"note.enter_title");
-            data.title = L"UltraNote";
-            data.value = m_data->title;
-
-            auto dlgProc = [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) -> INT_PTR {
-                switch (msg) {
-                    case WM_INITDIALOG: {
-                        auto* d = reinterpret_cast<DlgData*>(lParam);
-                        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(d));
-                        SetWindowTextW(hwnd, d->title.c_str());
-                        CreateWindowExW(0, L"STATIC", d->prompt.c_str(),
-                                        WS_CHILD | WS_VISIBLE, 10, 10, 280, 20,
-                                        hwnd, nullptr, nullptr, nullptr);
-                        HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", d->value.c_str(),
-                                                      WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                                                      10, 35, 280, 24, hwnd,
-                                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(100)),
-                                                      nullptr, nullptr);
-                        CreateWindowExW(0, L"BUTTON", L"OK",
-                                        WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                                        120, 70, 80, 28, hwnd,
-                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)),
-                                        nullptr, nullptr);
-                        CreateWindowExW(0, L"BUTTON", L"Cancel",
-                                        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                        210, 70, 80, 28, hwnd,
-                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
-                                        nullptr, nullptr);
-                        HFONT hFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-                        EnumChildWindows(hwnd, [](HWND child, LPARAM font) -> BOOL {
-                            SendMessageW(child, WM_SETFONT, static_cast<WPARAM>(font), TRUE);
-                            return TRUE;
-                        }, reinterpret_cast<LPARAM>(hFont));
-                        SendMessageW(hEdit, EM_SETSEL, 0, -1);
-                        SetFocus(hEdit);
-                        HWND hParent = GetParent(hwnd);
-                        if (hParent) {
-                            RECT rcP, rcD;
-                            GetWindowRect(hParent, &rcP);
-                            GetWindowRect(hwnd, &rcD);
-                            int cx = rcP.left + ((rcP.right - rcP.left) - (rcD.right - rcD.left)) / 2;
-                            int cy = rcP.top + ((rcP.bottom - rcP.top) - (rcD.bottom - rcD.top)) / 2;
-                            SetWindowPos(hwnd, nullptr, cx, cy, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-                        }
-                        return FALSE;
-                    }
-                    case WM_COMMAND:
-                        if (LOWORD(wParam) == IDOK) {
-                            auto* d = reinterpret_cast<DlgData*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-                            HWND hEdit = GetDlgItem(hwnd, 100);
-                            int len = GetWindowTextLengthW(hEdit);
-                            d->value.resize(static_cast<size_t>(len));
-                            if (len > 0) GetWindowTextW(hEdit, &d->value[0], len + 1);
-                            EndDialog(hwnd, IDOK);
-                            return TRUE;
-                        }
-                        if (LOWORD(wParam) == IDCANCEL) { EndDialog(hwnd, IDCANCEL); return TRUE; }
-                        break;
-                    case WM_CLOSE:
-                        EndDialog(hwnd, IDCANCEL);
-                        return TRUE;
-                }
-                return FALSE;
-            };
-
-            INT_PTR result = DialogBoxIndirectParamW(
-                nullptr, &dlg.tmpl, m_hwnd, dlgProc, reinterpret_cast<LPARAM>(&data));
-            if (result == IDOK) {
-                Application::Get().RenameNote(m_data->id, data.value);
+            // Share the same input dialog as the note-list Rename flow so both
+            // entry points look and behave identically.
+            std::wstring value = m_data->title;
+            if (NoteListWindow::InputDialog(m_hwnd, Ls(L"note.enter_title"),
+                                             L"UltraNote", value)) {
+                Application::Get().RenameNote(m_data->id, value);
             }
             break;
         }
@@ -1193,6 +1139,208 @@ void NoteWindow::HandleMenuCommand(int cmd) {
                         targetFolder = folders[folderIdx - 1];
                 }
                 Application::Get().SetNoteFolder(m_data->id, targetFolder);
+            }
+            break;
+    }
+}
+
+// ============================================================================
+// Edit-mode context menu
+// ============================================================================
+
+bool NoteWindow::HasEditSelection() const {
+    if (!m_hEditCtrl) return false;
+    DWORD start = 0, end = 0;
+    SendMessageW(m_hEditCtrl, EM_GETSEL,
+                 reinterpret_cast<WPARAM>(&start),
+                 reinterpret_cast<LPARAM>(&end));
+    return end > start;
+}
+
+void NoteWindow::InsertAtCursor(const std::wstring& text) {
+    if (!m_hEditCtrl) return;
+    // Use EM_REPLACESEL with undo (wParam=TRUE). Replaces current selection
+    // if any, otherwise inserts at the caret.
+    SendMessageW(m_hEditCtrl, EM_REPLACESEL, TRUE,
+                 reinterpret_cast<LPARAM>(text.c_str()));
+}
+
+void NoteWindow::InsertFilePathAtCursor() {
+    if (!m_hEditCtrl) return;
+
+    wchar_t file[MAX_PATH] = {};
+    OPENFILENAMEW ofn = { sizeof(ofn) };
+    ofn.hwndOwner   = m_hwnd;
+    ofn.lpstrFile   = file;
+    ofn.nMaxFile    = MAX_PATH;
+    ofn.lpstrFilter = L"All Files (*.*)\0*.*\0";
+    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY |
+                      OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
+
+    // Guard the edit control from being torn down while the common dialog
+    // is modal. See WM_KILLFOCUS in EditSubclassProc.
+    m_editModalOpen = true;
+    BOOL ok = GetOpenFileNameW(&ofn);
+    m_editModalOpen = false;
+
+    if (ok) {
+        SetFocus(m_hEditCtrl);
+        InsertAtCursor(file);
+    }
+}
+
+void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
+    if (!m_hEditCtrl) return;  // Only valid while edit mode is active
+
+    bool hasSel      = HasEditSelection();
+    bool hasText     = GetWindowTextLengthW(m_hEditCtrl) > 0;
+    bool clipHasText = IsClipboardFormatAvailable(CF_UNICODETEXT) != 0;
+
+    HMENU hMenu = CreatePopupMenu();
+    if (!hMenu) return;
+
+    auto& app = Application::Get();
+
+    // Segoe MDL2 Assets / Segoe Fluent Icons code points used for items
+    // that don't have a dedicated .ico in the res/ folder.
+    constexpr wchar_t GLYPH_SELECT_ALL = 0xE8B3;  // SelectAll
+    constexpr wchar_t GLYPH_CUT        = 0xE8C6;  // Cut (scissors)
+    constexpr wchar_t GLYPH_CALENDAR   = 0xE787;  // Calendar (Date/Time submenu)
+    constexpr wchar_t GLYPH_OPEN_FILE  = 0xE8E5;  // OpenFile (Insert path)
+
+    auto addItem = [&](UINT id, const wchar_t* text, HBITMAP bmp, UINT flags = 0) {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_FTYPE | MIIM_STATE | MIIM_BITMAP;
+        mii.fType      = MFT_STRING;
+        mii.fState     = (flags & MF_GRAYED) ? MFS_GRAYED : MFS_ENABLED;
+        mii.wID        = id;
+        mii.dwTypeData = const_cast<wchar_t*>(text);
+        mii.hbmpItem   = bmp;
+        InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
+    };
+
+    // Always-available commands
+    addItem(ID_EDIT_PASTE, Ls(L"edit.paste").c_str(),
+            app.GetResourceBitmap(IDI_PASTE),
+            clipHasText ? 0 : MF_GRAYED);
+    addItem(ID_EDIT_SELECT_ALL, Ls(L"edit.select_all").c_str(),
+            app.GetGlyphBitmap(GLYPH_SELECT_ALL),
+            hasText ? 0 : MF_GRAYED);
+
+    // Selection-dependent commands
+    if (hasSel) {
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+        addItem(ID_EDIT_CUT,    Ls(L"edit.cut").c_str(),
+                app.GetGlyphBitmap(GLYPH_CUT));
+        addItem(ID_EDIT_COPY,   Ls(L"edit.copy").c_str(),
+                app.GetResourceBitmap(IDI_COPY));
+        addItem(ID_EDIT_DELETE, Ls(L"edit.delete").c_str(),
+                app.GetResourceBitmap(IDI_DELETE));
+    }
+
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+
+    // Date/Time submenu — 12 ATnotes-style entries with live preview.
+    // Index within s_dt doubles as the offset from ID_EDIT_DATETIME_BASE.
+    struct DtEntry {
+        const wchar_t* code;    // "%c", "%#c", …
+        const wchar_t* format;  // strftime format passed to wcsftime
+        const wchar_t* locKey;  // Localization key for descriptive label
+        bool           sepBefore;
+    };
+    static const DtEntry s_dt[] = {
+        { L"%c",  L"%c",  L"settings.var_datetime_short", false },
+        { L"%#c", L"%#c", L"settings.var_datetime_long",  false },
+        { L"%x",  L"%x",  L"settings.var_date_short",     false },
+        { L"%#x", L"%#x", L"settings.var_date_long",      false },
+        { L"%X",  L"%X",  L"settings.var_time",           false },
+        { L"%d",  L"%d",  L"settings.var_day",            true  },
+        { L"%m",  L"%m",  L"settings.var_month",          false },
+        { L"%y",  L"%y",  L"settings.var_year_short",     false },
+        { L"%Y",  L"%Y",  L"settings.var_year_long",      false },
+        { L"%H",  L"%H",  L"settings.var_hour24",         true  },
+        { L"%M",  L"%M",  L"settings.var_minute",         false },
+        { L"%S",  L"%S",  L"settings.var_second",         false },
+    };
+
+    HMENU hDtMenu = CreatePopupMenu();
+    if (hDtMenu) {
+        std::time_t now = std::time(nullptr);
+        struct tm localTime;
+        localtime_s(&localTime, &now);
+
+        for (int i = 0; i < _countof(s_dt); ++i) {
+            if (s_dt[i].sepBefore)
+                AppendMenuW(hDtMenu, MF_SEPARATOR, 0, nullptr);
+
+            wchar_t buf[128];
+            size_t len = wcsftime(buf, 128, s_dt[i].format, &localTime);
+            std::wstring preview = (len > 0) ? std::wstring(buf, len) : L"";
+
+            std::wstring text = s_dt[i].code;
+            text += L"  ";
+            text += Ls(s_dt[i].locKey);
+            text += L"\t";
+            text += preview;
+
+            AppendMenuW(hDtMenu, MF_STRING,
+                        ID_EDIT_DATETIME_BASE + static_cast<UINT>(i),
+                        text.c_str());
+        }
+
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_STRING | MIIM_SUBMENU | MIIM_BITMAP | MIIM_FTYPE;
+        mii.fType      = MFT_STRING;
+        mii.hSubMenu   = hDtMenu;
+        std::wstring dtLabel = Ls(L"edit.datetime");
+        mii.dwTypeData = const_cast<wchar_t*>(dtLabel.c_str());
+        mii.hbmpItem   = app.GetGlyphBitmap(GLYPH_CALENDAR);
+        InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
+    }
+
+    addItem(ID_EDIT_INSERT_PATH, Ls(L"edit.insert_path").c_str(),
+            app.GetGlyphBitmap(GLYPH_OPEN_FILE));
+
+    int cmd = TrackPopupMenu(hMenu,
+        TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+        screenX, screenY, 0, m_hwnd, nullptr);
+    DestroyMenu(hMenu);
+
+    if (cmd == 0) return;
+
+    switch (cmd) {
+        case ID_EDIT_PASTE:
+            SendMessageW(m_hEditCtrl, WM_PASTE, 0, 0);
+            break;
+        case ID_EDIT_SELECT_ALL:
+            SendMessageW(m_hEditCtrl, EM_SETSEL, 0, -1);
+            break;
+        case ID_EDIT_CUT:
+            SendMessageW(m_hEditCtrl, WM_CUT, 0, 0);
+            break;
+        case ID_EDIT_COPY:
+            SendMessageW(m_hEditCtrl, WM_COPY, 0, 0);
+            break;
+        case ID_EDIT_DELETE:
+            SendMessageW(m_hEditCtrl, EM_REPLACESEL, TRUE,
+                         reinterpret_cast<LPARAM>(L""));
+            break;
+        case ID_EDIT_INSERT_PATH:
+            InsertFilePathAtCursor();
+            break;
+        default:
+            if (cmd >= ID_EDIT_DATETIME_BASE && cmd <= ID_EDIT_DATETIME_MAX) {
+                int idx = cmd - ID_EDIT_DATETIME_BASE;
+                if (idx >= 0 && idx < static_cast<int>(_countof(s_dt))) {
+                    std::time_t now = std::time(nullptr);
+                    struct tm localTime;
+                    localtime_s(&localTime, &now);
+                    wchar_t buf[128];
+                    size_t len = wcsftime(buf, 128, s_dt[idx].format, &localTime);
+                    if (len > 0) InsertAtCursor(std::wstring(buf, len));
+                }
             }
             break;
     }

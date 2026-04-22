@@ -88,6 +88,12 @@ private:
     void ShowContextMenu(int screenX, int screenY);
     void HandleMenuCommand(int cmd);
 
+    // Edit-mode context menu (shown on right-click inside the EDIT control)
+    void ShowEditContextMenu(int screenX, int screenY);
+    bool HasEditSelection() const;
+    void InsertAtCursor(const std::wstring& text);
+    void InsertFilePathAtCursor();
+
     // Sync NoteData position from current window rect
     void SyncDataFromWindow();
 
@@ -103,6 +109,10 @@ private:
 
     bool       m_selected      = false;
     bool       m_inEditMode    = false;
+    // Set while a modal child dialog (e.g. GetOpenFileNameW for Insert-Path)
+    // is open. Suppresses the EDIT-KILLFOCUS → ExitEditMode path that would
+    // otherwise tear down the EDIT control before we can insert into it.
+    bool       m_editModalOpen = false;
 
     // Drag state
     bool       m_dragging      = false;

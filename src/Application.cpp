@@ -111,6 +111,10 @@ void Application::Shutdown() {
         if (bmp) DeleteObject(bmp);
     }
     m_menuBitmaps.clear();
+    for (auto& [gly, bmp] : m_glyphBitmaps) {
+        if (bmp) DeleteObject(bmp);
+    }
+    m_glyphBitmaps.clear();
 
     if (m_hAppWnd) {
         DestroyWindow(m_hAppWnd);
@@ -290,6 +294,123 @@ HBITMAP Application::GetResourceBitmap(UINT iconResId) {
     HBITMAP bmp = LoadResourceMenuBitmap(iconResId);
     if (bmp) m_resBitmaps[iconResId] = bmp;
     return bmp;
+}
+
+HBITMAP Application::GetGlyphBitmap(wchar_t glyph) {
+    auto it = m_glyphBitmaps.find(glyph);
+    if (it != m_glyphBitmaps.end()) return it->second;
+
+    const int cx = GetSystemMetrics(SM_CXSMICON);
+    const int cy = GetSystemMetrics(SM_CYSMICON);
+
+    HDC hdcScreen = GetDC(nullptr);
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth       = cx;
+    bmi.bmiHeader.biHeight      = -cy;  // top-down DIB
+    bmi.bmiHeader.biPlanes      = 1;
+    bmi.bmiHeader.biBitCount    = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    uint32_t* bits = nullptr;
+    HBITMAP hBmp = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS,
+                                     reinterpret_cast<void**>(&bits),
+                                     nullptr, 0);
+    ReleaseDC(nullptr, hdcScreen);
+    if (!hBmp || !bits) {
+        if (hBmp) DeleteObject(hBmp);
+        return nullptr;
+    }
+
+    // Pre-fill with fully transparent pixels (RGB=0, A=0).
+    memset(bits, 0, static_cast<size_t>(cx) * cy * 4);
+
+    HDC memDC = CreateCompatibleDC(nullptr);
+    HGDIOBJ oldBmp = SelectObject(memDC, hBmp);
+
+    // Prefer Segoe Fluent Icons (Win11), fall back to Segoe MDL2 Assets (Win10).
+    // Height ~72% of icon metric gives a visually balanced glyph with margin.
+    // CreateFontW silently substitutes a default face (e.g. Tahoma) when the
+    // requested one is not installed, so verify via GetTextFace that the
+    // mapping actually stuck. Without this check the requested glyph would
+    // render as a missing-glyph box or empty pixels.
+    const int fontHeight = -(cy * 72 / 100);
+    auto tryIconFont = [&](const wchar_t* face) -> HFONT {
+        HFONT f = CreateFontW(
+            fontHeight, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, face);
+        if (!f) return nullptr;
+        HDC probe = CreateCompatibleDC(nullptr);
+        HGDIOBJ oldProbe = SelectObject(probe, f);
+        wchar_t actual[LF_FACESIZE] = {};
+        GetTextFaceW(probe, LF_FACESIZE, actual);
+        SelectObject(probe, oldProbe);
+        DeleteDC(probe);
+        if (_wcsicmp(actual, face) != 0) {
+            DeleteObject(f);
+            return nullptr;
+        }
+        return f;
+    };
+
+    HFONT hFont = tryIconFont(L"Segoe Fluent Icons");
+    if (!hFont) hFont = tryIconFont(L"Segoe MDL2 Assets");
+    if (!hFont) {
+        // Neither icon font is available — bail out, caller will render
+        // the menu item without a bitmap.
+        SelectObject(memDC, oldBmp);
+        DeleteDC(memDC);
+        DeleteObject(hBmp);
+        return nullptr;
+    }
+
+    HGDIOBJ oldFont = SelectObject(memDC, hFont);
+    SetBkMode(memDC, TRANSPARENT);
+    // Render in white against the zeroed (black) DIB. Each channel value of
+    // the resulting pixel equals the glyph's coverage at that pixel.
+    SetTextColor(memDC, RGB(255, 255, 255));
+
+    RECT rc = { 0, 0, cx, cy };
+    wchar_t text[2] = { glyph, L'\0' };
+    DrawTextW(memDC, text, 1, &rc,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+    SelectObject(memDC, oldFont);
+    DeleteObject(hFont);
+    SelectObject(memDC, oldBmp);
+    DeleteDC(memDC);
+
+    // DrawTextW writes RGB but leaves alpha at 0. Convert the grayscale
+    // coverage into a premultiplied-alpha bitmap matching the system menu
+    // text color so the glyph looks native.
+    COLORREF menuText = GetSysColor(COLOR_MENUTEXT);
+    const int tr = GetRValue(menuText);
+    const int tg = GetGValue(menuText);
+    const int tb = GetBValue(menuText);
+
+    const int total = cx * cy;
+    for (int i = 0; i < total; ++i) {
+        uint32_t p = bits[i];
+        uint8_t b = static_cast<uint8_t>(p & 0xFF);
+        uint8_t g = static_cast<uint8_t>((p >> 8) & 0xFF);
+        uint8_t r = static_cast<uint8_t>((p >> 16) & 0xFF);
+        // Grayscale intensity = desired alpha. All three channels are equal
+        // because text was rendered white, but average to be safe.
+        uint8_t a = static_cast<uint8_t>((r + g + b) / 3);
+        if (a == 0) continue;  // fully transparent pixel stays zero
+
+        uint8_t pR = static_cast<uint8_t>((tr * a) / 255);
+        uint8_t pG = static_cast<uint8_t>((tg * a) / 255);
+        uint8_t pB = static_cast<uint8_t>((tb * a) / 255);
+        bits[i] = (static_cast<uint32_t>(a)  << 24) |
+                  (static_cast<uint32_t>(pR) << 16) |
+                  (static_cast<uint32_t>(pG) << 8)  |
+                   static_cast<uint32_t>(pB);
+    }
+
+    m_glyphBitmaps[glyph] = hBmp;
+    return hBmp;
 }
 
 void Application::AppendMenuItemRes(HMENU hMenu, UINT id, const wchar_t* text,

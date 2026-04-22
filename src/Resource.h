@@ -227,3 +227,15 @@
 // Header context menu (column visibility toggle) — reserved range 320..329 (one per Column enum value)
 #define ID_NL_COLVIS_BASE           320
 #define ID_NL_COLVIS_MAX            329
+
+// Edit-mode context menu (inside the note EDIT control) — reserved 330..339
+#define ID_EDIT_PASTE               330
+#define ID_EDIT_SELECT_ALL          331
+#define ID_EDIT_CUT                 332
+#define ID_EDIT_COPY                333
+#define ID_EDIT_DELETE              334
+#define ID_EDIT_INSERT_PATH         335
+
+// Edit-mode Date/Time submenu — reserved 340..359 (12 ATnotes-style entries)
+#define ID_EDIT_DATETIME_BASE       340
+#define ID_EDIT_DATETIME_MAX        359

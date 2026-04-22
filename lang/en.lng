@@ -39,6 +39,14 @@ note.find_whole_word=&Whole word only
 note.find_next=&Find Next
 note.find_close=Close
 
+edit.paste=&Paste	Ctrl+V
+edit.select_all=Select &All	Ctrl+A
+edit.cut=Cu&t	Ctrl+X
+edit.copy=&Copy	Ctrl+C
+edit.delete=&Delete	Del
+edit.datetime=&Date/Time
+edit.insert_path=Insert File &Path...
+
 notelist.title=UltraNote - Note List
 notelist.file=&File
 notelist.close=&Close

@@ -39,6 +39,14 @@ note.find_whole_word=Nur ganzes &Wort
 note.find_next=&Weiter
 note.find_close=Schließen
 
+edit.paste=Ein&fügen	Strg+V
+edit.select_all=&Alles markieren	Strg+A
+edit.cut=Aus&schneiden	Strg+X
+edit.copy=&Kopieren	Strg+C
+edit.delete=&Löschen	Entf
+edit.datetime=&Datum/Zeit
+edit.insert_path=&Pfad zu einer Datei...
+
 notelist.title=UltraNote - Notizliste
 notelist.file=&Datei
 notelist.close=&Schließen

@@ -38,6 +38,10 @@ Projekt.md
 Sortierverhalten.md
 RichEdit-Control.md
 UltraNote-SQLite-Migrationsplan.md
+UltraNote_Arbeitsaufgaben.md
+
+# Local task/planning workspace (todo.md, lessons.md, screenshots)
+tasks/
 
 # Local setup docs
 GitLab-Runner-Setup.md

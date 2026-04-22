@@ -27,6 +27,11 @@ public:
     void SetPreviewPaused(bool paused);
     void FocusSearchField();
 
+    // Simple input dialog helper (also used by NoteWindow for "Rename note"
+    // so the two rename flows share pixel-identical look & feel).
+    static bool InputDialog(HWND parent, const std::wstring& prompt,
+                            const std::wstring& title, std::wstring& value);
+
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
@@ -63,9 +68,7 @@ private:
     // ListView context menu
     void ShowNoteContextMenu(int screenX, int screenY);
 
-    // Simple input dialog helper
-    static bool InputDialog(HWND parent, const std::wstring& prompt,
-                            const std::wstring& title, std::wstring& value);
+    // Dialog proc for InputDialog (kept private; declared in public section above)
     static INT_PTR CALLBACK InputDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     void CreateSearchEdit();
