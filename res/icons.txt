@@ -17,7 +17,7 @@ pin.ico          IDI_PIN          Immer im Vordergrund
 paste.ico        IDI_PASTE        Einfuegen
 exit.ico         IDI_EXIT         Beenden
 cut.ico          IDI_CUT          Ausschneiden (Edit-Kontextmenue)
-select all.ico   IDI_SELECT_ALL   Alles markieren (Edit-Kontextmenue)
+select_all.ico   IDI_SELECT_ALL   Alles markieren (Edit-Kontextmenue)
 datum.ico        IDI_DATETIME     Datum/Zeit-Submenue (Edit-Kontextmenue)
 path.ico         IDI_INSERT_PATH  Pfad zu einer Datei (Edit-Kontextmenue)
 

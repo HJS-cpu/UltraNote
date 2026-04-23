@@ -111,6 +111,10 @@ void Application::Shutdown() {
         if (bmp) DeleteObject(bmp);
     }
     m_menuBitmaps.clear();
+    for (auto& [id, bmp] : m_resBitmaps) {
+        if (bmp) DeleteObject(bmp);
+    }
+    m_resBitmaps.clear();
 
     if (m_hAppWnd) {
         DestroyWindow(m_hAppWnd);

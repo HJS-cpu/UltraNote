@@ -1159,8 +1159,6 @@ bool NoteWindow::HasEditSelection() const {
 
 void NoteWindow::InsertAtCursor(const std::wstring& text) {
     if (!m_hEditCtrl) return;
-    // Use EM_REPLACESEL with undo (wParam=TRUE). Replaces current selection
-    // if any, otherwise inserts at the caret.
     SendMessageW(m_hEditCtrl, EM_REPLACESEL, TRUE,
                  reinterpret_cast<LPARAM>(text.c_str()));
 }
@@ -1201,35 +1199,18 @@ void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
 
     auto& app = Application::Get();
 
-    auto addItem = [&](UINT id, const wchar_t* text, HBITMAP bmp, UINT flags = 0) {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_FTYPE | MIIM_STATE | MIIM_BITMAP;
-        mii.fType      = MFT_STRING;
-        mii.fState     = (flags & MF_GRAYED) ? MFS_GRAYED : MFS_ENABLED;
-        mii.wID        = id;
-        mii.dwTypeData = const_cast<wchar_t*>(text);
-        mii.hbmpItem   = bmp;
-        InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
-    };
-
     // Always-available commands
-    addItem(ID_EDIT_PASTE, Ls(L"edit.paste").c_str(),
-            app.GetResourceBitmap(IDI_PASTE),
-            clipHasText ? 0 : MF_GRAYED);
-    addItem(ID_EDIT_SELECT_ALL, Ls(L"edit.select_all").c_str(),
-            app.GetResourceBitmap(IDI_SELECT_ALL),
-            hasText ? 0 : MF_GRAYED);
+    app.AppendMenuItemRes(hMenu, ID_EDIT_PASTE, Ls(L"edit.paste").c_str(),
+                         IDI_PASTE, clipHasText ? 0 : MF_GRAYED);
+    app.AppendMenuItemRes(hMenu, ID_EDIT_SELECT_ALL, Ls(L"edit.select_all").c_str(),
+                         IDI_SELECT_ALL, hasText ? 0 : MF_GRAYED);
 
     // Selection-dependent commands
     if (hasSel) {
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-        addItem(ID_EDIT_CUT,    Ls(L"edit.cut").c_str(),
-                app.GetResourceBitmap(IDI_CUT));
-        addItem(ID_EDIT_COPY,   Ls(L"edit.copy").c_str(),
-                app.GetResourceBitmap(IDI_COPY));
-        addItem(ID_EDIT_DELETE, Ls(L"edit.delete").c_str(),
-                app.GetResourceBitmap(IDI_DELETE));
+        app.AppendMenuItemRes(hMenu, ID_EDIT_CUT,    Ls(L"edit.cut").c_str(),    IDI_CUT);
+        app.AppendMenuItemRes(hMenu, ID_EDIT_COPY,   Ls(L"edit.copy").c_str(),   IDI_COPY);
+        app.AppendMenuItemRes(hMenu, ID_EDIT_DELETE, Ls(L"edit.delete").c_str(), IDI_DELETE);
     }
 
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
@@ -1237,25 +1218,27 @@ void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
     // Date/Time submenu — 12 ATnotes-style entries with live preview.
     // Index within s_dt doubles as the offset from ID_EDIT_DATETIME_BASE.
     struct DtEntry {
-        const wchar_t* code;    // "%c", "%#c", …
-        const wchar_t* format;  // strftime format passed to wcsftime
+        const wchar_t* format;  // strftime format; also shown as the leading code in the label
         const wchar_t* locKey;  // Localization key for descriptive label
         bool           sepBefore;
     };
     static const DtEntry s_dt[] = {
-        { L"%c",  L"%c",  L"settings.var_datetime_short", false },
-        { L"%#c", L"%#c", L"settings.var_datetime_long",  false },
-        { L"%x",  L"%x",  L"settings.var_date_short",     false },
-        { L"%#x", L"%#x", L"settings.var_date_long",      false },
-        { L"%X",  L"%X",  L"settings.var_time",           false },
-        { L"%d",  L"%d",  L"settings.var_day",            true  },
-        { L"%m",  L"%m",  L"settings.var_month",          false },
-        { L"%y",  L"%y",  L"settings.var_year_short",     false },
-        { L"%Y",  L"%Y",  L"settings.var_year_long",      false },
-        { L"%H",  L"%H",  L"settings.var_hour24",         true  },
-        { L"%M",  L"%M",  L"settings.var_minute",         false },
-        { L"%S",  L"%S",  L"settings.var_second",         false },
+        { L"%c",  L"settings.var_datetime_short", false },
+        { L"%#c", L"settings.var_datetime_long",  false },
+        { L"%x",  L"settings.var_date_short",     false },
+        { L"%#x", L"settings.var_date_long",      false },
+        { L"%X",  L"settings.var_time",           false },
+        { L"%d",  L"settings.var_day",            true  },
+        { L"%m",  L"settings.var_month",          false },
+        { L"%y",  L"settings.var_year_short",     false },
+        { L"%Y",  L"settings.var_year_long",      false },
+        { L"%H",  L"settings.var_hour24",         true  },
+        { L"%M",  L"settings.var_minute",         false },
+        { L"%S",  L"settings.var_second",         false },
     };
+
+    // Previews are rendered once here and reused when the user picks an entry.
+    std::wstring previews[_countof(s_dt)];
 
     HMENU hDtMenu = CreatePopupMenu();
     if (hDtMenu) {
@@ -1269,13 +1252,13 @@ void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
 
             wchar_t buf[128];
             size_t len = wcsftime(buf, 128, s_dt[i].format, &localTime);
-            std::wstring preview = (len > 0) ? std::wstring(buf, len) : L"";
+            if (len > 0) previews[i].assign(buf, len);
 
-            std::wstring text = s_dt[i].code;
+            std::wstring text = s_dt[i].format;
             text += L"  ";
             text += Ls(s_dt[i].locKey);
             text += L"\t";
-            text += preview;
+            text += previews[i];
 
             AppendMenuW(hDtMenu, MF_STRING,
                         ID_EDIT_DATETIME_BASE + static_cast<UINT>(i),
@@ -1293,8 +1276,8 @@ void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
         InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
     }
 
-    addItem(ID_EDIT_INSERT_PATH, Ls(L"edit.insert_path").c_str(),
-            app.GetResourceBitmap(IDI_INSERT_PATH));
+    app.AppendMenuItemRes(hMenu, ID_EDIT_INSERT_PATH, Ls(L"edit.insert_path").c_str(),
+                         IDI_INSERT_PATH);
 
     int cmd = TrackPopupMenu(hMenu,
         TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
@@ -1326,13 +1309,9 @@ void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
         default:
             if (cmd >= ID_EDIT_DATETIME_BASE && cmd <= ID_EDIT_DATETIME_MAX) {
                 int idx = cmd - ID_EDIT_DATETIME_BASE;
-                if (idx >= 0 && idx < static_cast<int>(_countof(s_dt))) {
-                    std::time_t now = std::time(nullptr);
-                    struct tm localTime;
-                    localtime_s(&localTime, &now);
-                    wchar_t buf[128];
-                    size_t len = wcsftime(buf, 128, s_dt[idx].format, &localTime);
-                    if (len > 0) InsertAtCursor(std::wstring(buf, len));
+                if (idx >= 0 && idx < static_cast<int>(_countof(s_dt)) &&
+                    !previews[idx].empty()) {
+                    InsertAtCursor(previews[idx]);
                 }
             }
             break;
