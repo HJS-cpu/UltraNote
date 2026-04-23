@@ -2007,10 +2007,37 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
     HMENU hPopup = CreatePopupMenu();
     if (!hPopup) return;
 
+    auto& app = Application::Get();
+
+    auto addItem = [&](UINT id, const wchar_t* text, SHSTOCKICONID iconId, UINT flags = 0) {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_FTYPE | MIIM_STATE;
+        mii.fType      = MFT_STRING;
+        mii.fState     = (flags & MF_GRAYED) ? MFS_GRAYED : MFS_ENABLED;
+        if (flags & MF_CHECKED) mii.fState |= MFS_CHECKED;
+        mii.wID        = id;
+        mii.dwTypeData = const_cast<wchar_t*>(text);
+        mii.hbmpItem   = app.GetMenuBitmap(iconId);
+        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
+    };
+    auto addItemRes = [&](UINT id, const wchar_t* text, UINT iconResId, UINT flags = 0) {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_FTYPE | MIIM_STATE;
+        mii.fType      = MFT_STRING;
+        mii.fState     = (flags & MF_GRAYED) ? MFS_GRAYED : MFS_ENABLED;
+        if (flags & MF_CHECKED) mii.fState |= MFS_CHECKED;
+        mii.wID        = id;
+        mii.dwTypeData = const_cast<wchar_t*>(text);
+        mii.hbmpItem   = app.GetResourceBitmap(iconResId);
+        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
+    };
+
     // Edit/Rename only for single selection
-    UINT singleFlag = multiSelect ? MF_GRAYED : MF_STRING;
-    AppendMenuW(hPopup, singleFlag, ID_NL_NOTE_EDIT,   Ls(L"notelist.edit").c_str());
-    AppendMenuW(hPopup, singleFlag, ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str());
+    UINT singleFlag = multiSelect ? MF_GRAYED : 0;
+    addItem(ID_NL_NOTE_EDIT,   Ls(L"notelist.edit").c_str(),   SIID_RENAME,   singleFlag);
+    addItem(ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str(), SIID_DOCASSOC, singleFlag);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
     // "Set Folder" submenu — for single selection, mark current folder with a check.
@@ -2024,8 +2051,7 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
             item.mask  = LVIF_PARAM;
             item.iItem = idx;
             ListView_GetItem(m_hListView, &item);
-            NoteData* nd = Application::Get().FindNoteData(
-                static_cast<uint64_t>(item.lParam));
+            NoteData* nd = app.FindNoteData(static_cast<uint64_t>(item.lParam));
             if (nd) { currentFolder = nd->folder; haveCurrent = true; }
         }
     }
@@ -2036,7 +2062,7 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
     AppendMenuW(hFolderSub, noFolderFlags, ID_NL_FOLDER_BASE,
                 Ls(L"note.no_folder").c_str());
     AppendMenuW(hFolderSub, MF_SEPARATOR, 0, nullptr);
-    auto& folders = Application::Get().GetFolders();
+    auto& folders = app.GetFolders();
     for (size_t i = 0; i < folders.size() && i + 1 < (ID_NL_FOLDER_MAX - ID_NL_FOLDER_BASE); ++i) {
         UINT flags = MF_STRING;
         if (haveCurrent && currentFolder == folders[i]) flags |= MF_CHECKED;
@@ -2044,14 +2070,22 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
                     ID_NL_FOLDER_BASE + static_cast<UINT>(i + 1),
                     folders[i].c_str());
     }
-    AppendMenuW(hPopup, MF_POPUP, reinterpret_cast<UINT_PTR>(hFolderSub),
-                Ls(L"notelist.set_folder").c_str());
+    {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_STRING | MIIM_SUBMENU | MIIM_BITMAP;
+        mii.hSubMenu   = hFolderSub;
+        std::wstring folderLabel = Ls(L"notelist.set_folder");
+        mii.dwTypeData = const_cast<wchar_t*>(folderLabel.c_str());
+        mii.hbmpItem   = app.GetResourceBitmap(IDI_FOLDER);
+        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
+    }
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hPopup, singleFlag, ID_NL_NOTE_ALARM, Ls(L"notelist.alarm").c_str());
+    addItemRes(ID_NL_NOTE_ALARM, Ls(L"notelist.alarm").c_str(), IDI_ALARM, singleFlag);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hPopup, MF_STRING, ID_NL_NOTE_DELETE, Ls(L"notelist.delete").c_str());
+    addItemRes(ID_NL_NOTE_DELETE, Ls(L"notelist.delete").c_str(), IDI_DELETE);
 
     SetForegroundWindow(m_hwnd);
     TrackPopupMenu(hPopup, TPM_RIGHTBUTTON, screenX, screenY, 0, m_hwnd, nullptr);
@@ -2068,11 +2102,25 @@ void NoteListWindow::ShowFolderContextMenu(int screenX, int screenY) {
     // Rename/delete only apply to user folders (index >= 2).
     bool isUserFolder = (sel > 1);
 
-    AppendMenuW(hPopup, MF_STRING, ID_NL_FOLDER_NEW, Ls(L"folder.new").c_str());
+    auto& app = Application::Get();
+
+    auto addItem = [&](UINT id, const wchar_t* text, SHSTOCKICONID iconId) {
+        MENUITEMINFOW mii = {};
+        mii.cbSize     = sizeof(mii);
+        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_FTYPE;
+        mii.fType      = MFT_STRING;
+        mii.wID        = id;
+        mii.dwTypeData = const_cast<wchar_t*>(text);
+        mii.hbmpItem   = app.GetMenuBitmap(iconId);
+        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
+    };
+
+    addItem(ID_NL_FOLDER_NEW, Ls(L"folder.new").c_str(), SIID_FOLDER);
     if (isUserFolder) {
         AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(hPopup, MF_STRING, ID_NL_FOLDER_RENAME, Ls(L"folder.rename").c_str());
-        AppendMenuW(hPopup, MF_STRING, ID_NL_FOLDER_DELETE, Ls(L"folder.delete").c_str());
+        addItem(ID_NL_FOLDER_RENAME, Ls(L"folder.rename").c_str(), SIID_RENAME);
+        app.AppendMenuItemRes(hPopup, ID_NL_FOLDER_DELETE,
+                              Ls(L"folder.delete").c_str(), IDI_DELETE);
     }
 
     SetForegroundWindow(m_hwnd);
