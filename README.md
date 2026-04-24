@@ -6,76 +6,13 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 
 ## Features
 
-### Sticky Notes
-
-| Feature | Description |
-|---------|-------------|
-| **Create & Edit** | Click to create, double-click or Enter to edit |
-| **Drag & Resize** | Move notes freely, resize from any edge |
-| **Multi-Select** | Ctrl+Click to select multiple notes, move them together |
-| **Always on Top** | Pin individual notes above all windows |
-| **Hide / Show** | Hide notes without deleting them |
-| **Paste as Note** | Create a new note directly from clipboard content |
-| **Copy to Clipboard** | Copy note text with a single keystroke |
-| **Folders** | Organize notes into custom folders |
-| **Clickable Links** | URL's rendered as blue underlined links, single-click to open in browser (toggleable) |
-| **Attachments** | Drag & drop files onto notes, click to open, stored as path references |
-
-### Note List
-
-| Feature | Description |
-|---------|-------------|
-| **Overview** | Sortable list of all notes with title, text preview, folder, and last modified timestamp |
-| **Quick Actions** | Toggle visibility and always-on-top directly via checkboxes — list updates instantly |
-| **Hover Preview** | Hover over a note entry to preview it on screen |
-| **Toolbar** | New, Edit, Rename, Delete, Alarm, Show All, Hide All with icon toolbar |
-| **Context Menu** | Right-click for rename, folder assignment, alarm, and more; multi-select aware |
-| **Status Bar** | Shows total / filtered note count |
-| **Search & Highlight** | Live search across note titles and text; matches highlighted in orange inside opened notes, first match auto-selected on edit |
-| **Column Reordering** | Drag & drop columns in the header with red insertion-arrow indicator at the target gap; order persists across sessions |
-| **Zebra Striping** | Optional alternating row background (configurable) |
-
-### Alarms
-
-| Feature | Description |
-|---------|-------------|
-| **Per-note alarms** | Attach an alarm to any note, opened via toolbar or note context menu |
-| **Repetition** | Once, Daily, Every N days, Weekly (weekday picker), Monthly on day, Monthly on Nth weekday, Quarterly, Yearly |
-| **End conditions** | Never, After N occurrences, On specific date |
-| **Popup** | Topmost popup with sound loop; Close / Snooze / Open Note actions |
-| **Snooze & pause** | Configurable snooze minutes; pause individual alarms without losing settings |
-| **List columns** | Next alarm, Interval, Status (● active / ○ paused or expired) — visibility toggleable |
-
-### Find in Note
-
-| Feature | Description |
-|---------|-------------|
-| **Per-note dialog** | Modeless find dialog opened from the note context menu |
-| **Options** | Case-sensitive, Whole word only (word chars = letters, digits, underscore) |
-| **Wrap-around** | Continues from the top when the bottom is reached; viewport pre-scrolls to the match |
-
-### Settings Dialog
-
-| Tab | Options |
-|-----|---------|
-| **Layout** | Default background, text, and border colors; font selection; live preview |
-| **Keyboard** | Customize all shortcuts (2 local + 2 global hotkeys) |
-| **General** | Autosave interval, delete confirmation, preview toggle & delay, clickable links toggle, tray behavior, language |
-| **Misc** | New note position, cascade step/reset, default folder, initial text with strftime variables |
-| **Note List** | Date format (YYYY-MM-DD or DD.MM.YYYY), zebra striping toggle |
-
-### Localization
-
-- Full **English** and **German** language support
-- INI-based language files — easy to add new languages
-- Live language switching without restart
-
-### Global Hotkeys
-
-| Shortcut | Action |
-|----------|--------|
-| **Ctrl+Shift+N** | Create new note from anywhere |
-| **Ctrl+Shift+L** | Toggle note list from anywhere |
+- **Sticky Notes** — create, edit, drag, resize, multi-select, always-on-top, folders, attachments, clickable URLs
+- **Note List** — sortable overview with search, hover preview, toolbar, context menu, reorderable columns
+- **Alarms** — per-note alarms with flexible repetition, snooze, and popup
+- **Find in Note** — modeless per-note search with case-sensitive and whole-word options
+- **Settings Dialog** — five tabs: Layout, Keyboard, General, Misc, Note List
+- **Localization** — full English and German support via INI-based language files
+- **Global Hotkeys** — Ctrl+Shift+N for new note, Ctrl+Shift+L for note list
 
 ---
 
