@@ -172,6 +172,11 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 
 ## Changelog
 
+### v1.4.0 (2026-04-24)
+- **Note list stays open:** the minimize button is disabled and `SC_MINIMIZE` is blocked — the window can no longer be minimized via title bar, system menu, Win+Down, or taskbar right-click
+- **Smaller binary:** all `.ico` resource frames re-encoded as PNG (BMP-DIB → PNG, lossless), shrinking the embedded resources by ~99 KB and the Release EXE by ~105 KB (−15 %)
+- **Tooling:** reusable `tools/ico_to_png.py` converter with pixel-roundtrip verification
+
 ### v1.3.0 (2026-04-23)
 - **In-place edit context menu:** right-click inside a note while editing opens a dedicated editor menu with Paste/Select all/Cut/Copy/Delete, a Date/Time submenu (12 strftime formats with live preview), and Insert file path via the system picker
 - **Custom edit-menu icons:** Cut, Select all, Date/Time and Insert-path now ship as dedicated `.ico` artwork; Segoe MDL2 Assets / Segoe Fluent Icons glyph rendering removed entirely

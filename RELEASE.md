@@ -1,17 +1,16 @@
-## UltraNote v1.3.0 — Portable Sticky Notes for Windows
+## UltraNote v1.4.0 — Portable Sticky Notes for Windows
 
 A modern recreation of ATnotes (2005) built with pure Win32 API and C++17. Lightweight, portable, and dependency-free.
 
-### What's New in v1.3.0
+### What's New in v1.4.0
 
-**In-place edit context menu:**
-- Right-click inside a note while editing now opens a dedicated editor menu: Paste / Select all / Cut / Copy / Delete, plus a Date/Time submenu with 12 ATnotes-style strftime formats and live previews, and Insert file path via the system file picker
-- Separate from the outer note context menu — `ID_NOTE_COPY` copies the whole note, `ID_EDIT_COPY` copies only the selection
-- Modal file picker no longer tears down the edit control (new `m_editModalOpen` guard)
+**Note list stays put:**
+- The note list no longer minimizes — the title-bar minimize button is disabled, and `SC_MINIMIZE` is blocked so the window cannot be sent to the taskbar via the system menu, Win+Down, or a taskbar right-click either
 
-**Custom icons throughout the edit menu:**
-- Cut, Select all, Date/Time and Insert-path now use dedicated `.ico` artwork instead of Segoe MDL2 Assets / Segoe Fluent Icons glyphs — consistent look across Windows 10 and 11
-- Removed the glyph-rendering infrastructure (font probing, cached DIB sections, premultiplied-alpha conversion) — one code path instead of two
+**Smaller binary:**
+- All `.ico` resources re-encoded with PNG-compressed frames instead of uncompressed BMP-DIB — lossless, pixel-identical, loader-compatible since Windows Vista
+- Embedded resources shrink by ~99 KB; the Release EXE drops from ~700 KB to ~600 KB (−15 %)
+- New reusable `tools/ico_to_png.py` converter with built-in pixel-roundtrip verification
 
 ### Download
 

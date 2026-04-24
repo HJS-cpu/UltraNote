@@ -62,7 +62,7 @@ bool NoteListWindow::Create() {
         0,
         NOTELIST_WND_CLASS,
         Ls(L"notelist.title").c_str(),
-        WS_OVERLAPPEDWINDOW,
+        WS_OVERLAPPEDWINDOW & ~WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 650, 400,
         nullptr, nullptr, m_hInst, this
     );
@@ -853,6 +853,12 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             return 0;
         }
+
+        case WM_SYSCOMMAND:
+            if ((wParam & 0xFFF0) == SC_MINIMIZE) {
+                return 0;
+            }
+            break;
 
         case WM_CLOSE:
             SaveSettings();
