@@ -99,6 +99,8 @@ private:
     HIMAGELIST m_hToolbarImages = nullptr;
     HICON      m_hFolderIcon    = nullptr;
     HICON      m_hAllNotesIcon  = nullptr;
+    HICON      m_hSearchIcon    = nullptr;
+    HFONT      m_hSearchFont    = nullptr;
 
     enum class FolderFilter { All, Unfiled, Named };
     FolderFilter m_folderFilter   = FolderFilter::All;

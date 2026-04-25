@@ -46,6 +46,8 @@ NoteListWindow::~NoteListWindow() {
     }
     if (m_hFolderIcon) { DestroyIcon(m_hFolderIcon); m_hFolderIcon = nullptr; }
     if (m_hAllNotesIcon) { DestroyIcon(m_hAllNotesIcon); m_hAllNotesIcon = nullptr; }
+    if (m_hSearchIcon) { DestroyIcon(m_hSearchIcon); m_hSearchIcon = nullptr; }
+    if (m_hSearchFont) { DeleteObject(m_hSearchFont); m_hSearchFont = nullptr; }
     if (m_hwnd) {
         SetWindowLongPtrW(m_hwnd, 0, 0);
         DestroyWindow(m_hwnd);
@@ -964,17 +966,38 @@ void NoteListWindow::CreateSearchEdit() {
     );
 
     if (m_hSearchEdit) {
-        // Set same font as toolbar
-        HFONT hFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        // Use the modern system message font (Segoe UI 9pt on Win 10/11) to
+        // match the look of the InputDialog (Folder Rename / Note Rename),
+        // instead of DEFAULT_GUI_FONT (MS Sans Serif 8pt).
+        if (!m_hSearchFont) {
+            NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            m_hSearchFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        }
+        HFONT hFont = m_hSearchFont
+                          ? m_hSearchFont
+                          : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
         SendMessageW(m_hSearchEdit, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+        // Load magnifier icon at 16x16 for in-field rendering
+        if (!m_hSearchIcon) {
+            m_hSearchIcon = static_cast<HICON>(LoadImageW(
+                m_hInst, MAKEINTRESOURCEW(IDI_SEARCH), IMAGE_ICON,
+                16, 16, LR_DEFAULTCOLOR));
+        }
 
         // Set cue banner (placeholder text)
         SendMessageW(m_hSearchEdit, EM_SETCUEBANNER, TRUE,
                      reinterpret_cast<LPARAM>(Ls(L"notelist.search_placeholder").c_str()));
 
-        // Subclass for ESC handling
+        // Subclass for ESC handling and magnifier overlay paint (NC-strip)
         SetWindowSubclass(m_hSearchEdit, SearchEditSubclassProc, 0,
                           reinterpret_cast<DWORD_PTR>(this));
+
+        // Force WM_NCCALCSIZE recalculation so the right-side NC strip is reserved
+        SetWindowPos(m_hSearchEdit, nullptr, 0, 0, 0, 0,
+                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE |
+                     SWP_NOZORDER | SWP_NOACTIVATE);
     }
 }
 
@@ -982,14 +1005,70 @@ LRESULT CALLBACK NoteListWindow::SearchEditSubclassProc(
     HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
     UINT_PTR /*subId*/, DWORD_PTR refData)
 {
+    auto* self = reinterpret_cast<NoteListWindow*>(refData);
+
+    // Width of the NC strip reserved on the right side for the magnifier.
+    // 16 px icon + 2 px padding on each side.
+    static constexpr int kIconStripW = 20;
+    static constexpr int kIconSize   = 16;
+
     if (msg == WM_KEYDOWN && wParam == VK_ESCAPE) {
         // Clear search and move focus to listview
         SetWindowTextW(hwnd, L"");
-        auto* self = reinterpret_cast<NoteListWindow*>(refData);
         if (self->m_hListView)
             SetFocus(self->m_hListView);
         return 0;
     }
+
+    // Reserve a non-client strip on the right of the EDIT for the magnifier.
+    // EDIT cannot paint into NC area, so the icon survives in-place character
+    // updates that bypass WM_PAINT (typing path uses GetDC + ExtTextOut and
+    // wipes the entire client rect — but never the NC area).
+    if (msg == WM_NCCALCSIZE && wParam == TRUE) {
+        LRESULT lr = DefSubclassProc(hwnd, msg, wParam, lParam);
+        auto* p = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+        if (p->rgrc[0].right - p->rgrc[0].left > kIconStripW) {
+            p->rgrc[0].right -= kIconStripW;
+        }
+        return lr;
+    }
+
+    if (msg == WM_NCPAINT && self && self->m_hSearchIcon) {
+        // Let the default first draw the WS_EX_CLIENTEDGE frame
+        LRESULT lr = DefSubclassProc(hwnd, msg, wParam, lParam);
+
+        HDC hdc = GetWindowDC(hwnd);
+        if (hdc) {
+            RECT wr;
+            GetWindowRect(hwnd, &wr);
+            const int ww = wr.right  - wr.left;
+            const int wh = wr.bottom - wr.top;
+
+            // CLIENTEDGE frame thickness (typically 2 px)
+            const int fx = GetSystemMetrics(SM_CXEDGE);
+            const int fy = GetSystemMetrics(SM_CYEDGE);
+
+            // The strip we reserved sits just inside the right frame
+            RECT strip = {
+                ww - fx - kIconStripW,
+                fy,
+                ww - fx,
+                wh - fy
+            };
+
+            FillRect(hdc, &strip, GetSysColorBrush(COLOR_WINDOW));
+
+            const int iconX = strip.left + (kIconStripW - kIconSize) / 2;
+            const int iconY = strip.top  + ((strip.bottom - strip.top) - kIconSize) / 2;
+            DrawIconEx(hdc, iconX, iconY,
+                       self->m_hSearchIcon, kIconSize, kIconSize,
+                       0, nullptr, DI_NORMAL);
+
+            ReleaseDC(hwnd, hdc);
+        }
+        return lr;
+    }
+
     if (msg == WM_NCDESTROY) {
         RemoveWindowSubclass(hwnd, SearchEditSubclassProc, 0);
     }
