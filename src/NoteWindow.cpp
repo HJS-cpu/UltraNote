@@ -1215,26 +1215,19 @@ void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
 
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
 
-    // Date/Time submenu — 12 ATnotes-style entries with live preview.
+    // Date/Time submenu — five common formats with live preview.
     // Index within s_dt doubles as the offset from ID_EDIT_DATETIME_BASE.
     struct DtEntry {
-        const wchar_t* format;  // strftime format; also shown as the leading code in the label
+        const wchar_t* format;  // strftime format
         const wchar_t* locKey;  // Localization key for descriptive label
         bool           sepBefore;
     };
     static const DtEntry s_dt[] = {
         { L"%c",  L"settings.var_datetime_short", false },
-        { L"%#c", L"settings.var_datetime_long",  false },
         { L"%x",  L"settings.var_date_short",     false },
-        { L"%#x", L"settings.var_date_long",      false },
         { L"%X",  L"settings.var_time",           false },
-        { L"%d",  L"settings.var_day",            true  },
-        { L"%m",  L"settings.var_month",          false },
-        { L"%y",  L"settings.var_year_short",     false },
-        { L"%Y",  L"settings.var_year_long",      false },
-        { L"%H",  L"settings.var_hour24",         true  },
-        { L"%M",  L"settings.var_minute",         false },
-        { L"%S",  L"settings.var_second",         false },
+        { L"%#c", L"settings.var_datetime_long",  true  },
+        { L"%#x", L"settings.var_date_long",      false },
     };
 
     // Previews are rendered once here and reused when the user picks an entry.
@@ -1254,9 +1247,7 @@ void NoteWindow::ShowEditContextMenu(int screenX, int screenY) {
             size_t len = wcsftime(buf, 128, s_dt[i].format, &localTime);
             if (len > 0) previews[i].assign(buf, len);
 
-            std::wstring text = s_dt[i].format;
-            text += L"  ";
-            text += Ls(s_dt[i].locKey);
+            std::wstring text = Ls(s_dt[i].locKey);
             text += L"\t";
             text += previews[i];
 

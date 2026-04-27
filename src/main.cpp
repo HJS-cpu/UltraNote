@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <ole2.h>
 #include <commctrl.h>
+#include <locale.h>
 #include "Application.h"
 
 int WINAPI wWinMain(
@@ -9,6 +10,9 @@ int WINAPI wWinMain(
     _In_     LPWSTR    /*lpCmdLine*/,
     _In_     int       /*nCmdShow*/)
 {
+    // Use system default for date/time formatting (wcsftime weekday/month names)
+    setlocale(LC_TIME, "");
+
     // Initialize COM/OLE (needed for SHGetFileInfoW on .lnk files, drag & drop)
     OleInitialize(nullptr);
 
