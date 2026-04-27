@@ -80,6 +80,7 @@ notelist.folder_menu=&Ordner
 notelist.tb_search=Suchen
 notelist.search_placeholder=Suchen...
 notelist.status_notes=Notizen
+notelist.status_notes_one=Notiz
 
 folder.new=Neuer Ordner
 folder.rename=Ordner umbenennen

@@ -80,6 +80,7 @@ notelist.folder_menu=F&older
 notelist.tb_search=Search
 notelist.search_placeholder=Search...
 notelist.status_notes=Notes
+notelist.status_notes_one=Note
 
 folder.new=New Folder
 folder.rename=Rename Folder

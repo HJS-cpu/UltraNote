@@ -1233,9 +1233,10 @@ void NoteListWindow::UpdateStatusBar() {
     if (!m_hStatusBar) return;
     int total = static_cast<int>(Application::Get().GetAllNotes().size());
     int shown = ListView_GetItemCount(m_hListView);
+    const wchar_t* unitKey = (total == 1) ? L"notelist.status_notes_one" : L"notelist.status_notes";
     std::wstring text = (shown == total)
-        ? FormatString(L"%d %s", total, Ls(L"notelist.status_notes").c_str())
-        : FormatString(L"%d / %d %s", shown, total, Ls(L"notelist.status_notes").c_str());
+        ? FormatString(L"%d %s", total, Ls(unitKey).c_str())
+        : FormatString(L"%d / %d %s", shown, total, Ls(unitKey).c_str());
     SendMessageW(m_hStatusBar, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(text.c_str()));
 }
 
