@@ -205,6 +205,12 @@ void NoteListWindow::Show() {
 void NoteListWindow::Hide() {
     StopPreviewTimer();
     HidePreviewNote();
+    // Reset search field so the list is unfiltered the next time it opens.
+    // SetWindowTextW fires EN_CHANGE, which handles m_searchQuery, the
+    // magnifier/clear-X swap, PopulateList() and ApplyCurrentSort().
+    if (m_hSearchEdit && GetWindowTextLengthW(m_hSearchEdit) > 0) {
+        SetWindowTextW(m_hSearchEdit, L"");
+    }
     Application::Get().SetSearchHighlight(L"");
     ShowWindow(m_hwnd, SW_HIDE);
 }
@@ -247,12 +253,19 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
             // Search edit change - live filter
             if (reinterpret_cast<HWND>(lParam) == m_hSearchEdit && code == EN_CHANGE) {
+                const bool wasNonEmpty = !m_searchQuery.empty();
                 int len = GetWindowTextLengthW(m_hSearchEdit);
                 if (len > 0) {
                     m_searchQuery.resize(static_cast<size_t>(len));
                     GetWindowTextW(m_hSearchEdit, &m_searchQuery[0], len + 1);
                 } else {
                     m_searchQuery.clear();
+                }
+                // Swap magnifier <-> clear-X overlay only when crossing the
+                // empty/non-empty boundary, to avoid NC repaint on every keystroke.
+                if (wasNonEmpty != !m_searchQuery.empty()) {
+                    RedrawWindow(m_hSearchEdit, nullptr, nullptr,
+                                 RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW);
                 }
                 Application::Get().SetSearchHighlight(m_searchQuery);
                 PopulateList();
@@ -1007,10 +1020,23 @@ LRESULT CALLBACK NoteListWindow::SearchEditSubclassProc(
 {
     auto* self = reinterpret_cast<NoteListWindow*>(refData);
 
-    // Width of the NC strip reserved on the right side for the magnifier.
-    // 16 px icon + 2 px padding on each side.
+    // Width of the NC strip reserved on the right side for the magnifier /
+    // clear-X overlay. 16 px icon area + 2 px padding on each side.
     static constexpr int kIconStripW = 20;
     static constexpr int kIconSize   = 16;
+
+    // Returns the strip rect in window-local coords (origin at window top-left).
+    auto stripRectLocal = [](HWND h, RECT& out) {
+        RECT wr; GetWindowRect(h, &wr);
+        const int ww = wr.right  - wr.left;
+        const int wh = wr.bottom - wr.top;
+        const int fx = GetSystemMetrics(SM_CXEDGE);
+        const int fy = GetSystemMetrics(SM_CYEDGE);
+        out.left   = ww - fx - kIconStripW;
+        out.top    = fy;
+        out.right  = ww - fx;
+        out.bottom = wh - fy;
+    };
 
     if (msg == WM_KEYDOWN && wParam == VK_ESCAPE) {
         // Clear search and move focus to listview
@@ -1020,7 +1046,7 @@ LRESULT CALLBACK NoteListWindow::SearchEditSubclassProc(
         return 0;
     }
 
-    // Reserve a non-client strip on the right of the EDIT for the magnifier.
+    // Reserve a non-client strip on the right of the EDIT for the icon overlay.
     // EDIT cannot paint into NC area, so the icon survives in-place character
     // updates that bypass WM_PAINT (typing path uses GetDC + ExtTextOut and
     // wipes the entire client rect — but never the NC area).
@@ -1033,36 +1059,61 @@ LRESULT CALLBACK NoteListWindow::SearchEditSubclassProc(
         return lr;
     }
 
-    if (msg == WM_NCPAINT && self && self->m_hSearchIcon) {
+    // Hit-test the strip when the field has text — return HTBORDER so we
+    // receive WM_NCLBUTTONDOWN. HTBORDER is a passive code (no sizing,
+    // arrow cursor by default).
+    if (msg == WM_NCHITTEST) {
+        if (GetWindowTextLengthW(hwnd) > 0) {
+            RECT wr; GetWindowRect(hwnd, &wr);
+            POINT pt = { GET_X_LPARAM(lParam) - wr.left,
+                         GET_Y_LPARAM(lParam) - wr.top };
+            RECT strip; stripRectLocal(hwnd, strip);
+            if (PtInRect(&strip, pt)) return HTBORDER;
+        }
+    }
+
+    // Click on the clear-X strip: wipe text, keep focus in the EDIT so the
+    // user can keep typing a new query. Parent's EN_CHANGE handler triggers
+    // the NC repaint that swaps X back to magnifier.
+    if (msg == WM_NCLBUTTONDOWN && wParam == HTBORDER) {
+        if (GetWindowTextLengthW(hwnd) > 0) {
+            SetWindowTextW(hwnd, L"");
+            SetFocus(hwnd);
+            return 0;
+        }
+    }
+
+    if (msg == WM_NCPAINT && self) {
         // Let the default first draw the WS_EX_CLIENTEDGE frame
         LRESULT lr = DefSubclassProc(hwnd, msg, wParam, lParam);
 
         HDC hdc = GetWindowDC(hwnd);
         if (hdc) {
-            RECT wr;
-            GetWindowRect(hwnd, &wr);
-            const int ww = wr.right  - wr.left;
-            const int wh = wr.bottom - wr.top;
-
-            // CLIENTEDGE frame thickness (typically 2 px)
-            const int fx = GetSystemMetrics(SM_CXEDGE);
-            const int fy = GetSystemMetrics(SM_CYEDGE);
-
-            // The strip we reserved sits just inside the right frame
-            RECT strip = {
-                ww - fx - kIconStripW,
-                fy,
-                ww - fx,
-                wh - fy
-            };
-
+            RECT strip; stripRectLocal(hwnd, strip);
             FillRect(hdc, &strip, GetSysColorBrush(COLOR_WINDOW));
 
-            const int iconX = strip.left + (kIconStripW - kIconSize) / 2;
-            const int iconY = strip.top  + ((strip.bottom - strip.top) - kIconSize) / 2;
-            DrawIconEx(hdc, iconX, iconY,
-                       self->m_hSearchIcon, kIconSize, kIconSize,
-                       0, nullptr, DI_NORMAL);
+            const bool hasText = GetWindowTextLengthW(hwnd) > 0;
+
+            if (hasText) {
+                // Draw clear "X" — two diagonal strokes centered in the strip
+                const int cx = strip.left + kIconStripW / 2;
+                const int cy = strip.top  + (strip.bottom - strip.top) / 2;
+                const int r  = 4;
+                HPEN hPen  = CreatePen(PS_SOLID, 2, GetSysColor(COLOR_GRAYTEXT));
+                HPEN hOld  = static_cast<HPEN>(SelectObject(hdc, hPen));
+                MoveToEx(hdc, cx - r, cy - r, nullptr);
+                LineTo  (hdc, cx + r + 1, cy + r + 1);
+                MoveToEx(hdc, cx + r, cy - r, nullptr);
+                LineTo  (hdc, cx - r - 1, cy + r + 1);
+                SelectObject(hdc, hOld);
+                DeleteObject(hPen);
+            } else if (self->m_hSearchIcon) {
+                const int iconX = strip.left + (kIconStripW - kIconSize) / 2;
+                const int iconY = strip.top  + ((strip.bottom - strip.top) - kIconSize) / 2;
+                DrawIconEx(hdc, iconX, iconY,
+                           self->m_hSearchIcon, kIconSize, kIconSize,
+                           0, nullptr, DI_NORMAL);
+            }
 
             ReleaseDC(hwnd, hdc);
         }
@@ -1137,6 +1188,38 @@ LRESULT CALLBACK NoteListWindow::ListViewSubclassProc(
             self->OnHeaderEndDrag();
         }
     }
+
+    // Extend the splitter hit zone into the ListView's left edge so the
+    // visually-thin (1 px) splitter remains easy to grab. Once a drag has
+    // started the parent owns the capture, so we only intercept the entry
+    // points: cursor change while hovering and the click that starts the drag.
+    if (self && !self->m_splitterDragging) {
+        if (msg == WM_SETCURSOR && reinterpret_cast<HWND>(wParam) == hwnd) {
+            POINT pt; GetCursorPos(&pt);
+            ScreenToClient(hwnd, &pt);
+            if (pt.x >= 0 && pt.x < SPLITTER_HIT_PAD) {
+                SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
+                return TRUE;
+            }
+        }
+        if (msg == WM_LBUTTONDOWN) {
+            int x = GET_X_LPARAM(lParam);
+            if (x >= 0 && x < SPLITTER_HIT_PAD) {
+                // Translate to parent-client coords so the existing drag math
+                // (which is anchored at the parent's m_folderListWidth) works
+                // unchanged.
+                POINT pt = { x, GET_Y_LPARAM(lParam) };
+                ClientToScreen(hwnd, &pt);
+                ScreenToClient(self->m_hwnd, &pt);
+                self->m_splitterDragging   = true;
+                self->m_splitterDragStart  = pt.x;
+                self->m_splitterWidthStart = self->m_folderListWidth;
+                SetCapture(self->m_hwnd);
+                return 0;
+            }
+        }
+    }
+
     if (msg == WM_NCDESTROY) {
         RemoveWindowSubclass(hwnd, ListViewSubclassProc, 0);
     }

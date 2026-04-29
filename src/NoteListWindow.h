@@ -129,7 +129,12 @@ private:
     int  m_splitterDragStart = 0;
     int  m_splitterWidthStart = 0;
 
-    static constexpr int SPLITTER_WIDTH      = 4;
+    static constexpr int SPLITTER_WIDTH      = 1;
+    // Extra hit-test padding extending into the ListView's left edge so the
+    // splitter is easier to grab even though it is visually only 1 px wide.
+    // Realised via ListViewSubclassProc; the folder list side is left untouched
+    // because the visual splitter already sits flush against its right border.
+    static constexpr int SPLITTER_HIT_PAD    = 4;
     static constexpr int FOLDER_MIN_WIDTH    = 80;
     static constexpr int FOLDER_MAX_WIDTH    = 400;
     static constexpr int FOLDER_DEFAULT_WIDTH = 150;
