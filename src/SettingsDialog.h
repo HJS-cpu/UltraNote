@@ -11,6 +11,7 @@
 enum ShortcutAction {
     SC_DELETE = 0,
     SC_ALWAYS_ON_TOP,
+    SC_HIDE,              // Hide the focused note (analog to ID_NOTE_HIDE)
     SC_GLOBAL_NEWNOTE,    // Global hotkey: new note from anywhere
     SC_GLOBAL_NOTELIST,   // Global hotkey: toggle note list from anywhere
     SC_COUNT

@@ -285,7 +285,12 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
-        case WM_KEYDOWN: {
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN: {
+            // Alt+<key> arrives as WM_SYSKEYDOWN (not WM_KEYDOWN), so both
+            // messages share the shortcut handling. Without this, Alt-modified
+            // configurable shortcuts (e.g. Alt+O for AlwaysOnTop, Alt+H for Hide)
+            // would never fire.
             if (m_inEditMode) break; // Let edit control handle
 
             // Hardcoded shortcuts (not configurable)
@@ -315,6 +320,11 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     SetWindowPos(m_hwnd, m_data->layout.alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
                                  0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
                     NotifyChanged();
+                    return 0;
+                }
+
+                if (MatchesShortcut(settings.shortcuts[SC_HIDE], wParam)) {
+                    HandleMenuCommand(ID_NOTE_HIDE);
                     return 0;
                 }
             }
@@ -962,6 +972,7 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
     if (!hPopup) return;
 
     auto& app = Application::Get();
+    auto sc = SettingsDialog::LoadFromStorage().shortcuts;
 
     auto addItem = [&](UINT id, const wchar_t* text, SHSTOCKICONID iconId, UINT flags = 0) {
         MENUITEMINFOW mii = {};
@@ -1022,10 +1033,16 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
     }
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItemRes(ID_NOTE_HIDE, Ls(L"note.hide").c_str(), IDI_HIDE_ALL);
-    addItemRes(ID_NOTE_DELETE, Ls(L"note.delete").c_str(), IDI_DELETE);
+    addItemRes(ID_NOTE_HIDE,
+               AppendShortcutSuffix(Ls(L"note.hide"), sc[SC_HIDE]).c_str(),
+               IDI_HIDE_ALL);
+    addItemRes(ID_NOTE_DELETE,
+               AppendShortcutSuffix(Ls(L"note.delete"), sc[SC_DELETE]).c_str(),
+               IDI_DELETE);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItemRes(ID_NOTE_ALWAYSONTOP, Ls(L"note.always_on_top").c_str(), IDI_PIN,
+    addItemRes(ID_NOTE_ALWAYSONTOP,
+               AppendShortcutSuffix(Ls(L"note.always_on_top"), sc[SC_ALWAYS_ON_TOP]).c_str(),
+               IDI_PIN,
                m_data->layout.alwaysOnTop ? MF_CHECKED : 0);
     addItemRes(ID_NOTE_ATTACHMENTS, Ls(L"note.attachments").c_str(), IDI_ATTACHMENT,
                m_data->showAttachments ? MF_CHECKED : 0);

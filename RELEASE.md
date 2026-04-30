@@ -1,16 +1,28 @@
-## UltraNote v1.4.0 — Portable Sticky Notes for Windows
+## UltraNote v1.5.0 — Portable Sticky Notes for Windows
 
 A modern recreation of ATnotes (2005) built with pure Win32 API and C++17. Lightweight, portable, and dependency-free.
 
-### What's New in v1.4.0
+### What's New in v1.5.0
 
-**Note list stays put:**
-- The note list no longer minimizes — the title-bar minimize button is disabled, and `SC_MINIMIZE` is blocked so the window cannot be sent to the taskbar via the system menu, Win+Down, or a taskbar right-click either
+**New per-note "Hide" hotkey:**
+- Configurable shortcut (default **Alt+H**) hides the focused note — equivalent to the "Hide" entry in the note context menu
+- Also works in the note list: select one or more notes and press Alt+H to hide them all at once
 
-**Smaller binary:**
-- All `.ico` resources re-encoded with PNG-compressed frames instead of uncompressed BMP-DIB — lossless, pixel-identical, loader-compatible since Windows Vista
-- Embedded resources shrink by ~99 KB; the Release EXE drops from ~700 KB to ~600 KB (−15 %)
-- New reusable `tools/ico_to_png.py` converter with built-in pixel-roundtrip verification
+**Hotkey suffixes in context menus:**
+- The currently configured shortcut for Delete, Always-on-Top and Hide is shown next to each menu entry (e.g. *Delete\tDel*, *Always on Top\tAlt+O*, *Hide\tAlt+H*)
+- Suffixes update live when the user changes a shortcut in *Settings → Keyboard*
+
+**Settings dialog stays in front:**
+- When the note list is open, the settings dialog is owned by it — Windows keeps it above its owner in the z-order, so it can no longer disappear behind the note list when it loses focus
+
+**Note list activation fixes:**
+- The title bar now lights up correctly the first time the note list is opened after program start (previously it stayed in the inactive style)
+- The note list is pre-created during application start, so the very first `Show()` follows the same warm activation path as every later open
+
+**More predictable note opening:**
+- Opening a note from the note list always shows it in display mode — press Enter or double-click on the text to enter edit mode
+- Alt-modified shortcuts (Alt+H, Alt+O, …) now fire reliably in both note windows and the note-list view; previously `WM_SYSKEYDOWN` was not handled, so Alt-only shortcuts silently did nothing
+- The hotkey control in *Settings → Keyboard* explicitly accepts all modifier combinations (`HKM_SETRULES(0, 0)`), preventing the Alt modifier from being stripped on some shells
 
 ### Download
 
@@ -28,8 +40,8 @@ A modern recreation of ATnotes (2005) built with pure Win32 API and C++17. Light
 - File attachments via drag & drop
 - Clickable URLs in note text
 - Configurable initial text with date/time variables
-- Settings dialog (Layout, Keyboard, General, Misc, Note List)
-- Global hotkeys (Ctrl+Shift+N, Ctrl+Shift+L)
+- Settings dialog (Layout, Keyboard, General, Misc, Note List) — configurable shortcuts shown directly in the context menus
+- Global hotkeys (Ctrl+Shift+N, Ctrl+Shift+L) plus per-note shortcuts (Delete, Always-on-Top, Hide)
 - English and German localization
 - JSON-based portable storage — no registry, no AppData
 

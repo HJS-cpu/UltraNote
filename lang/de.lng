@@ -125,6 +125,7 @@ settings.sc_apply=Ändern
 settings.sc_default=Standard
 settings.sc_delete=Löschen
 settings.sc_ontop=Immer im Vordergrund
+settings.sc_hide=Verstecken
 settings.sc_global_new=Neue Notiz (Global)
 settings.sc_global_list=Notizliste (Global)
 

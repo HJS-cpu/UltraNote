@@ -125,6 +125,7 @@ settings.sc_apply=Apply
 settings.sc_default=Default
 settings.sc_delete=Delete
 settings.sc_ontop=Always on Top
+settings.sc_hide=Hide
 settings.sc_global_new=New Note (Global)
 settings.sc_global_list=Note List (Global)
 

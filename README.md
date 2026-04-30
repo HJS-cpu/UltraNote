@@ -12,7 +12,7 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 - **Find in Note** — modeless per-note search with case-sensitive and whole-word options
 - **Settings Dialog** — five tabs: Layout, Keyboard, General, Misc, Note List
 - **Localization** — full English and German support via INI-based language files
-- **Global Hotkeys** — Ctrl+Shift+N for new note, Ctrl+Shift+L for note list
+- **Global Hotkeys** — Ctrl+Shift+N for new note, Ctrl+Shift+L for note list; configurable per-note shortcuts (Delete, Always-on-Top, Hide) shown next to their menu entries
 
 ---
 
@@ -108,6 +108,15 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 ---
 
 ## Changelog
+
+### v1.5.0 (2026-04-30)
+- **New per-note hotkey "Hide":** configurable shortcut (default Alt+H) hides the focused note — also works for all selected notes in the note list
+- **Hotkey suffixes in context menus:** the configured shortcut for Delete, Always-on-Top, and Hide is shown next to each menu entry in both the note and the note-list context menu, kept in sync with the settings tab
+- **Settings dialog stays in front:** when the note list is open, the settings dialog is owned by it — it can no longer be hidden behind the note list when it loses focus
+- **Note list activation fixes:** title bar now activates correctly the first time the note list is opened after start-up; the note list window is pre-created during application start so the first `Show()` runs the warm activation path
+- **Open from list never enters edit mode:** opening a note from the note list shows it in display mode; press Enter or double-click to edit
+- **Alt-modified shortcuts work in display mode:** `WM_SYSKEYDOWN` is now handled in note windows and the note-list view, so Alt+H (Hide) and Alt+O (Always-on-Top) actually fire
+- **Hotkey control accepts every modifier combination:** `HKM_SETRULES(0, 0)` ensures the hotkey edit returns the user's input verbatim, including Alt-only
 
 ### v1.4.0 (2026-04-24)
 - **Note list stays open:** the minimize button is disabled and `SC_MINIMIZE` is blocked — the window can no longer be minimized via title bar, system menu, Win+Down, or taskbar right-click

@@ -173,6 +173,43 @@ inline bool MatchesShortcut(WORD shortcut, WPARAM vk) {
     return (needCtrl == hasCtrl) && (needShift == hasShift) && (needAlt == hasAlt);
 }
 
+// Format a packed shortcut (LOBYTE = VK, HIBYTE = HOTKEYF_*) as display text.
+// Returns "" for an unset shortcut (hotkey == 0).
+inline std::wstring FormatShortcut(WORD hotkey) {
+    if (hotkey == 0) return L"";
+    BYTE vk   = LOBYTE(hotkey);
+    BYTE mods = HIBYTE(hotkey);
+    std::wstring s;
+    if (mods & HOTKEYF_CONTROL) s += L"Ctrl+";
+    if (mods & HOTKEYF_SHIFT)   s += L"Shift+";
+    if (mods & HOTKEYF_ALT)     s += L"Alt+";
+    switch (vk) {
+        case VK_RETURN: s += L"Enter"; break;
+        case VK_DELETE: s += L"Del";   break;
+        case VK_ESCAPE: s += L"Esc";   break;
+        case VK_SPACE:  s += L"Space"; break;
+        case VK_TAB:    s += L"Tab";   break;
+        case VK_F1: case VK_F2: case VK_F3: case VK_F4:
+        case VK_F5: case VK_F6: case VK_F7: case VK_F8:
+        case VK_F9: case VK_F10: case VK_F11: case VK_F12:
+            s += L"F" + std::to_wstring(vk - VK_F1 + 1);
+            break;
+        default:
+            if (vk >= 'A' && vk <= 'Z')      s += static_cast<wchar_t>(vk);
+            else if (vk >= '0' && vk <= '9') s += static_cast<wchar_t>(vk);
+            else                              s += L"?";
+            break;
+    }
+    return s;
+}
+
+// Append "\t<shortcut>" to a menu label if the shortcut is set, otherwise return as-is.
+// Tab is the standard Win32 menu separator between label and accelerator column.
+inline std::wstring AppendShortcutSuffix(const std::wstring& text, WORD hotkey) {
+    std::wstring sc = FormatShortcut(hotkey);
+    return sc.empty() ? text : (text + L"\t" + sc);
+}
+
 // Expand strftime variables in initial text template.
 // %%p is the cursor position marker (removed from output, position stored in outCursorPos).
 // %% is a literal percent sign.

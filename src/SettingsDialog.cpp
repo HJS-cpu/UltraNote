@@ -12,6 +12,7 @@ COLORREF SettingsDialog::s_customColors[16] = {};
 static const ShortcutDef s_shortcutDefs[SC_COUNT] = {
     { SC_DELETE,         L"shortcut.delete",        L"settings.sc_delete",        MAKEWORD(VK_DELETE, 0) },
     { SC_ALWAYS_ON_TOP,  L"shortcut.ontop",         L"settings.sc_ontop",         MAKEWORD('O', HOTKEYF_ALT) },
+    { SC_HIDE,           L"shortcut.hide",          L"settings.sc_hide",          MAKEWORD('H', HOTKEYF_ALT) },
     { SC_GLOBAL_NEWNOTE, L"shortcut.global_new",    L"settings.sc_global_new",    MAKEWORD('N', HOTKEYF_CONTROL | HOTKEYF_SHIFT) },
     { SC_GLOBAL_NOTELIST,L"shortcut.global_list",   L"settings.sc_global_list",   MAKEWORD('L', HOTKEYF_CONTROL | HOTKEYF_SHIFT) },
 };
@@ -20,40 +21,8 @@ const ShortcutDef* SettingsDialog::GetShortcutDefs() {
     return s_shortcutDefs;
 }
 
-// Helper to format a hotkey as display string
-static std::wstring FormatHotkey(WORD hotkey) {
-    BYTE vk = LOBYTE(hotkey);
-    BYTE mods = HIBYTE(hotkey);
-    std::wstring result;
-
-    if (mods & HOTKEYF_CONTROL) result += L"Ctrl+";
-    if (mods & HOTKEYF_SHIFT)   result += L"Shift+";
-    if (mods & HOTKEYF_ALT)     result += L"Alt+";
-
-    // Named keys
-    switch (vk) {
-        case VK_RETURN: result += L"Enter"; break;
-        case VK_DELETE: result += L"Del"; break;
-        case VK_ESCAPE: result += L"Esc"; break;
-        case VK_SPACE:  result += L"Space"; break;
-        case VK_TAB:    result += L"Tab"; break;
-        case VK_F1: case VK_F2: case VK_F3: case VK_F4:
-        case VK_F5: case VK_F6: case VK_F7: case VK_F8:
-        case VK_F9: case VK_F10: case VK_F11: case VK_F12:
-            result += L"F" + std::to_wstring(vk - VK_F1 + 1);
-            break;
-        default:
-            if (vk >= 'A' && vk <= 'Z') {
-                result += static_cast<wchar_t>(vk);
-            } else if (vk >= '0' && vk <= '9') {
-                result += static_cast<wchar_t>(vk);
-            } else {
-                result += L"?";
-            }
-            break;
-    }
-    return result;
-}
+// Hotkey display formatting lives in Utils.h (FormatShortcut) so that menus and
+// the settings list share a single source.
 
 // ============================================================================
 // Load / Save
@@ -566,7 +535,7 @@ void SettingsDialog::CreateKeyboardTab(HWND hwnd) {
         lvi.pszText = const_cast<wchar_t*>(Ls(s_shortcutDefs[i].locKey).c_str());
         ListView_InsertItem(hList, &lvi);
 
-        std::wstring keyStr = FormatHotkey(m_data.shortcuts[i]);
+        std::wstring keyStr = FormatShortcut(m_data.shortcuts[i]);
         ListView_SetItemText(hList, i, 1, const_cast<wchar_t*>(keyStr.c_str()));
     }
 
@@ -582,6 +551,10 @@ void SettingsDialog::CreateKeyboardTab(HWND hwnd) {
         x + 100, y, 130, 23,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SHORTCUT_HOTKEY)),
         nullptr, nullptr);
+    // Accept any modifier combination — including Alt-only — so HKM_GETHOTKEY
+    // returns the user's input verbatim. Without explicit rules some shells
+    // strip the Alt modifier from displayed/returned hotkeys.
+    SendMessageW(hHotkey, HKM_SETRULES, 0, 0);
     m_tabControls[1].push_back(hHotkey);
 
     HWND hChangeBtn = CreateWindowExW(0, L"BUTTON", Ls(L"settings.sc_apply").c_str(),
@@ -1132,7 +1105,7 @@ void SettingsDialog::OnShortcutChange() {
 
     m_data.shortcuts[sel] = hk;
 
-    std::wstring keyStr = FormatHotkey(hk);
+    std::wstring keyStr = FormatShortcut(hk);
     ListView_SetItemText(hList, sel, 1, const_cast<wchar_t*>(keyStr.c_str()));
 }
 
@@ -1148,7 +1121,7 @@ void SettingsDialog::OnShortcutDefault() {
     m_data.shortcuts[sel] = defHk;
     SendMessageW(hHotkey, HKM_SETHOTKEY, defHk, 0);
 
-    std::wstring keyStr = FormatHotkey(defHk);
+    std::wstring keyStr = FormatShortcut(defHk);
     ListView_SetItemText(hList, sel, 1, const_cast<wchar_t*>(keyStr.c_str()));
 }
 

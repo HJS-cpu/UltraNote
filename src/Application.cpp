@@ -65,6 +65,16 @@ bool Application::Initialize(HINSTANCE hInst) {
     // Apply saved settings (autosave interval, cascade positions, etc.)
     ApplySettings();
 
+    // Pre-create the note list window (hidden) so the very first Show() goes
+    // through the warm path. Doing the heavy CreateWindowExW + child setup in
+    // the same stack as the activation request from the tray click breaks
+    // foreground transition on the first open — the title bar stays inactive
+    // because Windows skips re-activation when the window already sits at the
+    // top of the z-order. Pre-create avoids that by separating creation from
+    // the first activation.
+    m_noteListWindow = std::make_unique<NoteListWindow>(m_hInst);
+    m_noteListWindow->Create();
+
     return true;
 }
 
@@ -975,7 +985,14 @@ void Application::ShowSettingsDialog() {
         m_noteListWindow->SetPreviewPaused(true);
     }
 
-    SettingsDialog::Show(m_hAppWnd);
+    // Use the note list window as owner when it's visible. With the message-only
+    // app window as owner, Windows treats the dialog as ownerless from the user's
+    // perspective — the note list can cover it as soon as the dialog loses focus.
+    // An owned dialog is kept above its owner in z-order, fixing that.
+    HWND hOwner = (m_noteListWindow && m_noteListWindow->IsVisible())
+                  ? m_noteListWindow->GetHwnd()
+                  : m_hAppWnd;
+    SettingsDialog::Show(hOwner);
 
     // Resume preview after dialog closes
     if (m_noteListWindow) {

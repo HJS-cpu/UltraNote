@@ -175,16 +175,12 @@ bool NoteListWindow::Create() {
 }
 
 void NoteListWindow::Show() {
-    Refresh();
-    // Restore if minimized, then force to foreground. SetForegroundWindow
-    // alone can fail due to Windows' foreground-lock — the AttachThreadInput
-    // trick bypasses it when the call isn't coming from the foreground thread.
-    if (IsIconic(m_hwnd)) {
-        ShowWindow(m_hwnd, SW_RESTORE);
-    } else {
-        ShowWindow(m_hwnd, SW_SHOW);
-    }
-
+    // Attach our input queue to the current foreground BEFORE the initial
+    // ShowWindow — otherwise the first SW_SHOW after Create() runs without a
+    // valid foreground claim and WM_NCACTIVATE arrives in the inactive state,
+    // leaving the title bar painted as inactive on the very first open of the
+    // session. SetForegroundWindow alone can't recover from that because the
+    // window is already in z-order top, so Windows skips a re-activation.
     HWND hFore = GetForegroundWindow();
     DWORD myThread   = GetCurrentThreadId();
     DWORD foreThread = hFore ? GetWindowThreadProcessId(hFore, nullptr) : 0;
@@ -192,12 +188,27 @@ void NoteListWindow::Show() {
     if (foreThread && foreThread != myThread) {
         attached = AttachThreadInput(foreThread, myThread, TRUE) != 0;
     }
+
+    if (IsIconic(m_hwnd)) {
+        ShowWindow(m_hwnd, SW_RESTORE);
+    } else {
+        // SW_SHOWNORMAL activates the window unconditionally; plain SW_SHOW
+        // skips activation when the window is already visible-but-inactive.
+        ShowWindow(m_hwnd, SW_SHOWNORMAL);
+    }
     BringWindowToTop(m_hwnd);
     SetForegroundWindow(m_hwnd);
+    SetActiveWindow(m_hwnd);
     SetFocus(m_hwnd);
+
     if (attached) {
         AttachThreadInput(foreThread, myThread, FALSE);
     }
+
+    // Refresh after activation so ListView population (which can flush messages
+    // and steal focus during heavy redraws) does not interfere with the
+    // foreground transition.
+    Refresh();
 
     if (m_previewEnabled) StartPreviewTimer();
 }
@@ -483,6 +494,31 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                                 const_cast<LPWSTR>(note->layout.alwaysOnTop ? L"\u2611" : L"\u2610"));
                                         }
                                     }
+                                }
+                                return 0;
+                            }
+                            if (MatchesShortcut(settings.shortcuts[SC_HIDE], kd->wVKey)) {
+                                // Hide all selected notes (skip already-hidden ones)
+                                bool changed = false;
+                                int idx = -1;
+                                while ((idx = ListView_GetNextItem(m_hListView, idx, LVNI_SELECTED)) != -1) {
+                                    LVITEMW item = {};
+                                    item.mask = LVIF_PARAM;
+                                    item.iItem = idx;
+                                    if (ListView_GetItem(m_hListView, &item)) {
+                                        uint64_t noteId = static_cast<uint64_t>(item.lParam);
+                                        NoteData* nd = Application::Get().FindNoteData(noteId);
+                                        if (nd && !nd->isHidden) {
+                                            nd->isHidden = true;
+                                            NoteWindow* nw = Application::Get().FindNoteWindow(noteId);
+                                            if (nw) nw->Show(false);
+                                            changed = true;
+                                        }
+                                    }
+                                }
+                                if (changed) {
+                                    Application::Get().MarkDirty();
+                                    Refresh();
                                 }
                                 return 0;
                             }
@@ -1217,6 +1253,59 @@ LRESULT CALLBACK NoteListWindow::ListViewSubclassProc(
                 SetCapture(self->m_hwnd);
                 return 0;
             }
+        }
+    }
+
+    // ALT+<key> arrives as WM_SYSKEYDOWN, which the ListView does NOT relay
+    // through LVN_KEYDOWN. Without this handler Alt-modified per-note shortcuts
+    // (Alt+O, Alt+H) never fire while the list view has focus.
+    if (msg == WM_SYSKEYDOWN && self) {
+        auto settings = SettingsDialog::LoadFromStorage();
+        WPARAM vk = wParam;
+
+        auto forEachSelected = [&](auto&& fn) {
+            int idx = -1;
+            while ((idx = ListView_GetNextItem(hwnd, idx, LVNI_SELECTED)) != -1) {
+                LVITEMW item = {};
+                item.mask = LVIF_PARAM;
+                item.iItem = idx;
+                if (ListView_GetItem(hwnd, &item)) {
+                    fn(idx, static_cast<uint64_t>(item.lParam));
+                }
+            }
+        };
+
+        if (MatchesShortcut(settings.shortcuts[SC_ALWAYS_ON_TOP], vk)) {
+            forEachSelected([&](int idx, uint64_t noteId) {
+                self->ToggleNoteAlwaysOnTop(noteId);
+                NoteData* note = Application::Get().FindNoteData(noteId);
+                if (note) {
+                    ListView_SetItemText(hwnd, idx, COL_ONTOP,
+                        const_cast<LPWSTR>(note->layout.alwaysOnTop ? L"☑" : L"☐"));
+                }
+            });
+            return 0;
+        }
+        if (MatchesShortcut(settings.shortcuts[SC_HIDE], vk)) {
+            bool changed = false;
+            forEachSelected([&](int /*idx*/, uint64_t noteId) {
+                NoteData* nd = Application::Get().FindNoteData(noteId);
+                if (nd && !nd->isHidden) {
+                    nd->isHidden = true;
+                    NoteWindow* nw = Application::Get().FindNoteWindow(noteId);
+                    if (nw) nw->Show(false);
+                    changed = true;
+                }
+            });
+            if (changed) {
+                Application::Get().MarkDirty();
+                self->Refresh();
+            }
+            return 0;
+        }
+        if (MatchesShortcut(settings.shortcuts[SC_DELETE], vk)) {
+            self->DeleteSelectedNotes();
+            return 0;
         }
     }
 
@@ -2025,9 +2114,9 @@ void NoteListWindow::EditSelectedNote() {
         m_previewNoteIdx = -1;
     }
 
-    // Active search: skip edit mode so highlighted matches stay visible
-    bool enterEdit = m_searchQuery.empty();
-    Application::Get().BringNoteToFront(id, enterEdit);
+    // Opening a note from the list shows it in display mode — let the user
+    // decide whether to enter edit (double-click on the note, Enter, etc.).
+    Application::Get().BringNoteToFront(id, false);
 }
 
 void NoteListWindow::OpenAlarmForSelected() {
@@ -2177,6 +2266,7 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
     if (!hPopup) return;
 
     auto& app = Application::Get();
+    auto sc = SettingsDialog::LoadFromStorage().shortcuts;
 
     auto addItem = [&](UINT id, const wchar_t* text, SHSTOCKICONID iconId, UINT flags = 0) {
         MENUITEMINFOW mii = {};
@@ -2254,7 +2344,9 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
     addItemRes(ID_NL_NOTE_ALARM, Ls(L"notelist.alarm").c_str(), IDI_ALARM, singleFlag);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItemRes(ID_NL_NOTE_DELETE, Ls(L"notelist.delete").c_str(), IDI_DELETE);
+    addItemRes(ID_NL_NOTE_DELETE,
+               AppendShortcutSuffix(Ls(L"notelist.delete"), sc[SC_DELETE]).c_str(),
+               IDI_DELETE);
 
     SetForegroundWindow(m_hwnd);
     TrackPopupMenu(hPopup, TPM_RIGHTBUTTON, screenX, screenY, 0, m_hwnd, nullptr);

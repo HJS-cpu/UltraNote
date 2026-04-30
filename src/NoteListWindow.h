@@ -21,6 +21,7 @@ public:
     void Show();
     void Hide();
     bool IsVisible() const;
+    HWND GetHwnd() const { return m_hwnd; }
 
     void Refresh();
     void SetPreviewEnabled(bool enabled);
