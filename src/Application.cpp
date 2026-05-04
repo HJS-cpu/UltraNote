@@ -899,6 +899,484 @@ void Application::ShowSearchInNoteList() {
 }
 
 // ============================================================================
+// Import / Export
+// ============================================================================
+
+static bool IsRectOnAnyMonitor(int x, int y, int w, int h) {
+    if (w <= 0) w = 1;
+    if (h <= 0) h = 1;
+    RECT r = { x, y, x + w, y + h };
+    return MonitorFromRect(&r, MONITOR_DEFAULTTONULL) != nullptr;
+}
+
+// Build a "(N)" buffer for printf-style success messages.
+static std::wstring FormatCount(const std::wstring& fmt, int count) {
+    wchar_t buf[256];
+    swprintf_s(buf, fmt.c_str(), count);
+    return buf;
+}
+
+// Convert "Filter Label|*.ext|...||" with '|' as separators into a buffer with
+// '\0' separators expected by GetSaveFileName/GetOpenFileName.
+static std::wstring BuildOfnFilter(const std::wstring& src) {
+    std::wstring out;
+    out.reserve(src.size() + 2);
+    for (wchar_t ch : src) {
+        out += (ch == L'|') ? L'\0' : ch;
+    }
+    if (out.empty() || out.back() != L'\0') out += L'\0';
+    out += L'\0';
+    return out;
+}
+
+void Application::ExportNotesByIds(HWND owner, const std::vector<uint64_t>& ids) {
+    // Resolve IDs to NoteData* in their natural order from m_notes
+    std::vector<const NoteData*> selected;
+    selected.reserve(ids.size());
+    for (const auto& note : m_notes) {
+        if (std::find(ids.begin(), ids.end(), note->id) != ids.end()) {
+            selected.push_back(note.get());
+        }
+    }
+    if (selected.empty()) return;
+
+    // Default filename: "<export.default_name>-YYYY-MM-DD.unote"
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    wchar_t dateBuf[16];
+    swprintf_s(dateBuf, L"-%04u-%02u-%02u", st.wYear, st.wMonth, st.wDay);
+    std::wstring defaultName = Ls(L"export.default_name") + dateBuf + L".unote";
+
+    // GetSaveFileName: editable buffer must be MAX_PATH-sized
+    wchar_t fileBuf[MAX_PATH];
+    wcsncpy_s(fileBuf, defaultName.c_str(), _TRUNCATE);
+
+    std::wstring filter = BuildOfnFilter(Ls(L"export.filter"));
+    std::wstring title  = Ls(L"export.title");
+
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner   = owner;
+    ofn.lpstrFilter = filter.c_str();
+    ofn.lpstrFile   = fileBuf;
+    ofn.nMaxFile    = MAX_PATH;
+    ofn.lpstrTitle  = title.c_str();
+    ofn.lpstrDefExt = L"unote";
+    ofn.Flags       = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+    if (!GetSaveFileNameW(&ofn)) return;
+
+    if (!Storage::ExportNotes(fileBuf, selected)) {
+        MessageBoxW(owner, Ls(L"export.error_save").c_str(), L"UltraNote",
+                    MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    std::wstring msg = FormatCount(Ls(L"export.success"), static_cast<int>(selected.size()));
+    MessageBoxW(owner, msg.c_str(), L"UltraNote", MB_OK | MB_ICONINFORMATION);
+}
+
+void Application::ImportNotesFromFile(HWND owner) {
+    wchar_t fileBuf[MAX_PATH] = {};
+    std::wstring filter = BuildOfnFilter(Ls(L"import.filter"));
+    std::wstring title  = Ls(L"import.title");
+
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner   = owner;
+    ofn.lpstrFilter = filter.c_str();
+    ofn.lpstrFile   = fileBuf;
+    ofn.nMaxFile    = MAX_PATH;
+    ofn.lpstrTitle  = title.c_str();
+    ofn.lpstrDefExt = L"unote";
+    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+    if (!GetOpenFileNameW(&ofn)) return;
+
+    std::vector<std::unique_ptr<NoteData>> imported;
+    if (!Storage::ImportNotes(fileBuf, imported)) {
+        MessageBoxW(owner, Ls(L"import.error_parse").c_str(), L"UltraNote",
+                    MB_OK | MB_ICONERROR);
+        return;
+    }
+    if (imported.empty()) {
+        MessageBoxW(owner, Ls(L"import.error_empty").c_str(), L"UltraNote",
+                    MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    auto settings = SettingsDialog::LoadFromStorage();
+    int64_t nowTs = static_cast<int64_t>(std::time(nullptr));
+
+    for (auto& note : imported) {
+        // Always assign a fresh ID — the source-file IDs may collide with
+        // existing notes, and we never want to risk overwriting them.
+        note->id = m_nextId++;
+
+        // Sane timestamps if the file omitted them
+        if (note->createdAt == 0)  note->createdAt  = nowTs;
+        if (note->modifiedAt == 0) note->modifiedAt = nowTs;
+
+        // Off-screen safety: if the saved coordinates do not intersect any
+        // monitor (different display setup on import target), fall back to
+        // the cascade position used for new notes.
+        if (!IsRectOnAnyMonitor(note->x, note->y,
+                                 note->width  > 0 ? note->width  : 200,
+                                 note->height > 0 ? note->height : 150)) {
+            note->x = m_cascadeX;
+            note->y = m_cascadeY;
+            m_cascadeX += settings.cascadeStep;
+            m_cascadeY += settings.cascadeStep;
+            if (m_cascadeX > settings.cascadeReset) m_cascadeX = settings.newNoteX;
+            if (m_cascadeY > settings.cascadeReset) m_cascadeY = settings.newNoteY;
+        }
+
+        // Folder: create on demand if it does not exist locally
+        if (!note->folder.empty()) {
+            bool found = false;
+            for (const auto& f : m_folders) {
+                if (f == note->folder) { found = true; break; }
+            }
+            if (!found) {
+                m_folders.push_back(note->folder);
+                std::sort(m_folders.begin(), m_folders.end(),
+                          [](const std::wstring& a, const std::wstring& b) {
+                              return _wcsicmp(a.c_str(), b.c_str()) < 0;
+                          });
+            }
+        }
+
+        // Move into live store and create window if visible
+        NoteData* raw = note.get();
+        m_notes.push_back(std::move(note));
+        if (!raw->isHidden) {
+            CreateNoteWindow(raw);
+        }
+    }
+
+    m_dirty = true;
+    RefreshNoteList();
+
+    std::wstring msg = FormatCount(Ls(L"import.success"), static_cast<int>(imported.size()));
+    MessageBoxW(owner, msg.c_str(), L"UltraNote", MB_OK | MB_ICONINFORMATION);
+}
+
+// ============================================================================
+// Print
+// ============================================================================
+
+namespace {
+
+int PtToDevY(HDC hdc, int pts) {
+    return MulDiv(pts, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+}
+
+HFONT MakePrintFont(HDC hdc, const std::wstring& face, int sizePts,
+                    bool bold, bool italic) {
+    LOGFONTW lf = {};
+    lf.lfHeight         = -PtToDevY(hdc, sizePts);
+    lf.lfWeight         = bold ? FW_BOLD : FW_NORMAL;
+    lf.lfItalic         = italic ? TRUE : FALSE;
+    lf.lfCharSet        = DEFAULT_CHARSET;
+    lf.lfOutPrecision   = OUT_DEFAULT_PRECIS;
+    lf.lfClipPrecision  = CLIP_DEFAULT_PRECIS;
+    lf.lfQuality        = CLEARTYPE_QUALITY;
+    lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+    if (!face.empty()) {
+        wcsncpy_s(lf.lfFaceName, face.c_str(), _TRUNCATE);
+    }
+    return CreateFontIndirectW(&lf);
+}
+
+int LineHeight(HDC hdc, HFONT hFont) {
+    HFONT old = static_cast<HFONT>(SelectObject(hdc, hFont));
+    TEXTMETRICW tm = {};
+    GetTextMetricsW(hdc, &tm);
+    SelectObject(hdc, old);
+    return tm.tmHeight + tm.tmExternalLeading;
+}
+
+// Word-wrap `text` so each output entry fits within `maxWidth` device pixels
+// when rendered with `hFont` on `hdc`. Hard line breaks come from '\n' in the
+// source text. Long lines are broken at the last whitespace inside the longest
+// prefix that still fits; if no whitespace is available the cut is hard.
+std::vector<std::wstring> WrapTextLines(HDC hdc, HFONT hFont,
+                                         const std::wstring& text, int maxWidth) {
+    std::vector<std::wstring> out;
+    if (maxWidth <= 0) return out;
+    HFONT old = static_cast<HFONT>(SelectObject(hdc, hFont));
+
+    auto width = [&](const wchar_t* s, int n) -> int {
+        if (n <= 0) return 0;
+        SIZE sz = {};
+        GetTextExtentPoint32W(hdc, s, n, &sz);
+        return sz.cx;
+    };
+
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        size_t nl = text.find(L'\n', pos);
+        std::wstring line = (nl == std::wstring::npos)
+            ? text.substr(pos)
+            : text.substr(pos, nl - pos);
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+
+        if (line.empty()) {
+            out.push_back(L"");
+        } else {
+            size_t lp = 0;
+            while (lp < line.size()) {
+                std::wstring rest = line.substr(lp);
+                if (width(rest.c_str(), static_cast<int>(rest.size())) <= maxWidth) {
+                    out.push_back(rest);
+                    break;
+                }
+                // Binary search for max prefix length that fits
+                int lo = 1, hi = static_cast<int>(rest.size()), fit = 1;
+                while (lo <= hi) {
+                    int mid = (lo + hi) / 2;
+                    if (width(rest.c_str(), mid) <= maxWidth) {
+                        fit = mid;
+                        lo  = mid + 1;
+                    } else {
+                        hi = mid - 1;
+                    }
+                }
+                // Prefer breaking at last whitespace within the fitting prefix
+                int br = -1;
+                for (int j = fit; j > 0; --j) {
+                    wchar_t c = rest[j - 1];
+                    if (c == L' ' || c == L'\t') { br = j; break; }
+                }
+                int take = (br > 0) ? br : fit;
+                std::wstring chunk = rest.substr(0, take);
+                while (!chunk.empty() &&
+                       (chunk.back() == L' ' || chunk.back() == L'\t')) {
+                    chunk.pop_back();
+                }
+                out.push_back(chunk);
+                lp += take;
+                while (lp < line.size() && line[lp] == L' ') ++lp;
+            }
+        }
+
+        if (nl == std::wstring::npos) break;
+        pos = nl + 1;
+    }
+
+    SelectObject(hdc, old);
+    return out;
+}
+
+} // namespace
+
+void Application::PrintNoteByIds(HWND owner, const std::vector<uint64_t>& ids) {
+    if (ids.empty()) return;
+
+    // Resolve IDs to NoteData* in the natural order of m_notes
+    std::vector<const NoteData*> notes;
+    notes.reserve(ids.size());
+    for (const auto& n : m_notes) {
+        if (std::find(ids.begin(), ids.end(), n->id) != ids.end()) {
+            notes.push_back(n.get());
+        }
+    }
+    if (notes.empty()) return;
+
+    PRINTDLGW pd = {};
+    pd.lStructSize = sizeof(pd);
+    pd.hwndOwner   = owner;
+    pd.Flags       = PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION;
+    pd.nCopies     = 1;
+    if (!PrintDlgW(&pd)) {
+        if (pd.hDevMode)  GlobalFree(pd.hDevMode);
+        if (pd.hDevNames) GlobalFree(pd.hDevNames);
+        return;
+    }
+
+    HDC hdc = pd.hDC;
+    int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
+    int dpiY = GetDeviceCaps(hdc, LOGPIXELSY);
+    int marginX = MulDiv(50, dpiX, 254);   // 5 mm
+    int marginY = MulDiv(75, dpiY, 254);   // 7.5 mm
+    RECT printable = {
+        marginX, marginY,
+        GetDeviceCaps(hdc, HORZRES) - marginX,
+        GetDeviceCaps(hdc, VERTRES) - marginY
+    };
+
+    std::wstring docName = Ls(L"print.doc_name");
+    DOCINFOW di = {};
+    di.cbSize     = sizeof(di);
+    di.lpszDocName = docName.c_str();
+
+    if (StartDocW(hdc, &di) <= 0) {
+        DeleteDC(hdc);
+        if (pd.hDevMode)  GlobalFree(pd.hDevMode);
+        if (pd.hDevNames) GlobalFree(pd.hDevNames);
+        MessageBoxW(owner, Ls(L"print.error_failed").c_str(), L"UltraNote",
+                    MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    // Date format from settings (matches NoteListWindow::PopulateList)
+    auto intSettings = Storage::LoadSettings();
+    auto itDateFmt = intSettings.find(L"notelist.dateFormat");
+    const wchar_t* dateFmt = L"%Y-%m-%d %H:%M";
+    if (itDateFmt != intSettings.end() && itDateFmt->second == 1) {
+        dateFmt = L"%d.%m.%Y %H:%M";
+    }
+
+    int  pageNumber = 0;
+    bool ok = true;
+    std::wstring pageFmt = Ls(L"print.page_label");
+
+    for (const NoteData* note : notes) {
+        int bodyPt  = note->layout.fontSizePts > 0 ? note->layout.fontSizePts : 10;
+        int titlePt = bodyPt + 4;
+        int metaPt  = (bodyPt - 2 > 8) ? (bodyPt - 2) : 8;
+        const std::wstring& face = note->layout.fontFace;
+
+        HFONT hTitleFont = MakePrintFont(hdc, face, titlePt, true,  false);
+        HFONT hBodyFont  = MakePrintFont(hdc, face, bodyPt,
+                                          note->layout.fontBold,
+                                          note->layout.fontItalic);
+        HFONT hMetaFont  = MakePrintFont(hdc, face, metaPt,  false, true);
+        if (!hTitleFont || !hBodyFont || !hMetaFont) {
+            if (hTitleFont) DeleteObject(hTitleFont);
+            if (hBodyFont)  DeleteObject(hBodyFont);
+            if (hMetaFont)  DeleteObject(hMetaFont);
+            ok = false;
+            break;
+        }
+
+        int titleH = LineHeight(hdc, hTitleFont);
+        int bodyH  = LineHeight(hdc, hBodyFont);
+        int metaH  = LineHeight(hdc, hMetaFont);
+
+        std::wstring title = note->title;
+        if (title.empty()) {
+            title = note->text;
+            auto nl = title.find(L'\n');
+            if (nl != std::wstring::npos) title = title.substr(0, nl);
+            if (title.empty()) title = Ls(L"note.untitled");
+        }
+
+        std::wstring meta;
+        if (!note->folder.empty()) meta = note->folder + L"  •  ";
+        int64_t ts = note->modifiedAt > 0 ? note->modifiedAt : note->createdAt;
+        if (ts > 0) {
+            time_t t = static_cast<time_t>(ts);
+            struct tm tm = {};
+            localtime_s(&tm, &t);
+            wchar_t dbuf[64];
+            wcsftime(dbuf, 64, dateFmt, &tm);
+            meta += dbuf;
+        }
+
+        int contentWidth = printable.right - printable.left;
+        std::vector<std::wstring> titleLines =
+            WrapTextLines(hdc, hTitleFont, title, contentWidth);
+        std::vector<std::wstring> metaLines  = meta.empty()
+            ? std::vector<std::wstring>{}
+            : WrapTextLines(hdc, hMetaFont, meta, contentWidth);
+        std::vector<std::wstring> bodyLines  =
+            WrapTextLines(hdc, hBodyFont, note->text, contentWidth);
+
+        size_t bodyIdx = 0;
+        bool firstPage = true;
+
+        do {
+            if (StartPage(hdc) <= 0) { ok = false; break; }
+            ++pageNumber;
+
+            SetBkMode(hdc, TRANSPARENT);
+            int y = printable.top;
+
+            if (firstPage) {
+                SelectObject(hdc, hTitleFont);
+                SetTextColor(hdc, RGB(0, 0, 0));
+                for (const auto& tl : titleLines) {
+                    if (y + titleH > printable.bottom) break;
+                    TextOutW(hdc, printable.left, y, tl.c_str(),
+                             static_cast<int>(tl.size()));
+                    y += titleH;
+                }
+                if (!metaLines.empty()) {
+                    y += titleH / 4;
+                    SelectObject(hdc, hMetaFont);
+                    SetTextColor(hdc, RGB(80, 80, 80));
+                    for (const auto& ml : metaLines) {
+                        if (y + metaH > printable.bottom) break;
+                        TextOutW(hdc, printable.left, y, ml.c_str(),
+                                 static_cast<int>(ml.size()));
+                        y += metaH;
+                    }
+                }
+                y += metaH / 2;
+                HPEN hPen = CreatePen(PS_SOLID, 1, RGB(180, 180, 180));
+                HPEN hOldPen = static_cast<HPEN>(SelectObject(hdc, hPen));
+                MoveToEx(hdc, printable.left, y, nullptr);
+                LineTo(hdc, printable.right, y);
+                SelectObject(hdc, hOldPen);
+                DeleteObject(hPen);
+                y += titleH / 2;
+            }
+
+            // Reserve footer height (one meta line + small gap)
+            int footerReserve = metaH + metaH / 2;
+            int bodyBottom    = printable.bottom - footerReserve;
+
+            SelectObject(hdc, hBodyFont);
+            SetTextColor(hdc, RGB(0, 0, 0));
+            while (bodyIdx < bodyLines.size() && y + bodyH <= bodyBottom) {
+                const std::wstring& bl = bodyLines[bodyIdx];
+                if (!bl.empty()) {
+                    TextOutW(hdc, printable.left, y, bl.c_str(),
+                             static_cast<int>(bl.size()));
+                }
+                y += bodyH;
+                ++bodyIdx;
+            }
+
+            // Footer: page number, right-aligned
+            wchar_t pageLabel[64];
+            swprintf_s(pageLabel, pageFmt.c_str(), pageNumber);
+            int labelLen = static_cast<int>(wcslen(pageLabel));
+            SelectObject(hdc, hMetaFont);
+            SetTextColor(hdc, RGB(80, 80, 80));
+            SIZE pSz = {};
+            GetTextExtentPoint32W(hdc, pageLabel, labelLen, &pSz);
+            TextOutW(hdc, printable.right - pSz.cx,
+                     printable.bottom - metaH, pageLabel, labelLen);
+
+            if (EndPage(hdc) <= 0) { ok = false; break; }
+            firstPage = false;
+        } while (bodyIdx < bodyLines.size());
+
+        DeleteObject(hTitleFont);
+        DeleteObject(hBodyFont);
+        DeleteObject(hMetaFont);
+
+        if (!ok) break;
+    }
+
+    if (ok) {
+        EndDoc(hdc);
+    } else {
+        AbortDoc(hdc);
+    }
+    DeleteDC(hdc);
+    if (pd.hDevMode)  GlobalFree(pd.hDevMode);
+    if (pd.hDevNames) GlobalFree(pd.hDevNames);
+
+    if (!ok) {
+        MessageBoxW(owner, Ls(L"print.error_failed").c_str(), L"UltraNote",
+                    MB_OK | MB_ICONERROR);
+    }
+}
+
+// ============================================================================
 // Folder management
 // ============================================================================
 

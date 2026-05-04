@@ -20,6 +20,17 @@ public:
     // Get the path to notes.json (in EXE directory)
     static std::wstring GetNotesFilePath();
 
+    // Export selected notes to a .unote file (JSON wrapper around the same
+    // per-note schema used by notes.json).
+    static bool ExportNotes(const std::wstring& path,
+                            const std::vector<const NoteData*>& notes);
+
+    // Import notes from a .unote file. On success outNotes is filled with the
+    // parsed notes (with their original IDs from the file — caller is expected
+    // to reassign fresh IDs before inserting them into the live store).
+    static bool ImportNotes(const std::wstring& path,
+                            std::vector<std::unique_ptr<NoteData>>& outNotes);
+
     // Key-value settings (settings.json)
     // Supports int and string values in the same file
     static std::map<std::wstring, int> LoadSettings();

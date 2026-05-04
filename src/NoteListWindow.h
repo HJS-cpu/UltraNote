@@ -57,6 +57,8 @@ private:
     void RenameSelectedNote();
     void OpenAlarmForSelected();
     void ShowSetFolderMenu();
+    void HandleExport();
+    void HandlePrint();
     void ToggleNoteHidden(uint64_t noteId);
     void ToggleNoteAlwaysOnTop(uint64_t noteId);
 

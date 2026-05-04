@@ -76,6 +76,13 @@ public:
     void RefreshNoteList();
     void ShowSearchInNoteList();
 
+    // Import / Export
+    void ExportNotesByIds(HWND owner, const std::vector<uint64_t>& ids);
+    void ImportNotesFromFile(HWND owner);
+
+    // Print selected notes (resolves IDs against m_notes; shows PrintDlg)
+    void PrintNoteByIds(HWND owner, const std::vector<uint64_t>& ids);
+
     // Settings dialog
     void ShowSettingsDialog();
     void ApplySettings();

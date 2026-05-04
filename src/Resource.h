@@ -1,7 +1,7 @@
 #pragma once
 
 // Version
-#define ULTRANOTE_VERSION       L"v1.5.0"
+#define ULTRANOTE_VERSION       L"v1.6.0"
 
 // Icons
 #define IDI_APP                 101
@@ -26,6 +26,9 @@
 #define IDI_SELECT_ALL          120
 #define IDI_DATETIME            121
 #define IDI_INSERT_PATH         122
+#define IDI_IMPORT              123
+#define IDI_EXPORT              124
+#define IDI_PRINT               125
 
 // Tray context menu
 #define IDR_TRAY_MENU           200
@@ -76,6 +79,14 @@
 #define ID_NL_SETTINGS          312
 #define ID_NL_ABOUT             314
 #define ID_NL_SEARCH            315
+
+// Note list: Import/Export
+#define ID_NL_FILE_IMPORT       316
+#define ID_NL_FILE_EXPORT       317
+
+// Print
+#define ID_NOTE_PRINT           318
+#define ID_NL_NOTE_PRINT        319
 
 // Tray menu: Search
 #define ID_TRAY_SEARCH          206

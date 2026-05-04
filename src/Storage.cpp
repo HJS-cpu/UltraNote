@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <cwchar>
+#include <ctime>
 
 // ============================================================================
 // File path
@@ -197,6 +198,112 @@ bool Storage::SaveNotes(const std::vector<std::unique_ptr<NoteData>>& notes, uin
     }
 
     return true;
+}
+
+// ============================================================================
+// Import / Export (single-file JSON wrapper around SerializeNote)
+// ============================================================================
+
+bool Storage::ExportNotes(const std::wstring& path,
+                           const std::vector<const NoteData*>& notes) {
+    std::wstring s;
+    s += L"{\n";
+    s += L"  \"format\": \"ultranote-export\",\n";
+    s += L"  \"version\": 1,\n";
+    s += L"  \"exportedAt\": " + std::to_wstring(static_cast<int64_t>(std::time(nullptr))) + L",\n";
+    s += L"  \"notes\": [\n";
+    for (size_t i = 0; i < notes.size(); ++i) {
+        if (!notes[i]) continue;
+        s += SerializeNote(*notes[i]);
+        if (i + 1 < notes.size()) s += L",";
+        s += L"\n";
+    }
+    s += L"  ]\n";
+    s += L"}\n";
+
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, s.c_str(),
+                                       static_cast<int>(s.size()),
+                                       nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return false;
+    std::string utf8(static_cast<size_t>(utf8Len), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, s.c_str(),
+                        static_cast<int>(s.size()),
+                        &utf8[0], utf8Len, nullptr, nullptr);
+
+    FILE* fp = nullptr;
+    if (_wfopen_s(&fp, path.c_str(), L"wb") != 0 || !fp) return false;
+    size_t written = fwrite(utf8.data(), 1, utf8.size(), fp);
+    fclose(fp);
+    return written == utf8.size();
+}
+
+bool Storage::ImportNotes(const std::wstring& path,
+                           std::vector<std::unique_ptr<NoteData>>& outNotes) {
+    FILE* fp = nullptr;
+    if (_wfopen_s(&fp, path.c_str(), L"rb") != 0 || !fp) return false;
+
+    fseek(fp, 0, SEEK_END);
+    long fileSize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (fileSize <= 0) { fclose(fp); return false; }
+
+    std::string utf8(static_cast<size_t>(fileSize), '\0');
+    fread(&utf8[0], 1, static_cast<size_t>(fileSize), fp);
+    fclose(fp);
+
+    // Strip UTF-8 BOM if present
+    size_t bomOffset = 0;
+    if (utf8.size() >= 3 &&
+        static_cast<unsigned char>(utf8[0]) == 0xEF &&
+        static_cast<unsigned char>(utf8[1]) == 0xBB &&
+        static_cast<unsigned char>(utf8[2]) == 0xBF) {
+        bomOffset = 3;
+    }
+
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str() + bomOffset,
+                                       static_cast<int>(utf8.size() - bomOffset),
+                                       nullptr, 0);
+    if (wideLen <= 0) return false;
+    std::wstring json(static_cast<size_t>(wideLen), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str() + bomOffset,
+                        static_cast<int>(utf8.size() - bomOffset),
+                        &json[0], wideLen);
+
+    const wchar_t* p = json.c_str();
+    if (!Expect(p, L'{')) return false;
+
+    bool foundNotes = false;
+    while (*p && *p != L'}') {
+        SkipWhitespace(p);
+        if (*p == L'}') break;
+
+        std::wstring key;
+        if (!ParseString(p, key)) return false;
+        if (!Expect(p, L':')) return false;
+
+        if (key == L"notes") {
+            if (!Expect(p, L'[')) return false;
+            SkipWhitespace(p);
+            while (*p && *p != L']') {
+                auto note = std::make_unique<NoteData>();
+                if (!ParseNoteObject(p, *note)) return false;
+                outNotes.push_back(std::move(note));
+                SkipWhitespace(p);
+                if (*p == L',') ++p;
+                SkipWhitespace(p);
+            }
+            if (!Expect(p, L']')) return false;
+            foundNotes = true;
+        } else {
+            // format / version / exportedAt — and any forward-compat fields
+            if (!SkipValue(p)) return false;
+        }
+
+        SkipWhitespace(p);
+        if (*p == L',') ++p;
+    }
+
+    return foundNotes;
 }
 
 // ============================================================================

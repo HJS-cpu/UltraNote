@@ -1,28 +1,22 @@
-## UltraNote v1.5.0 — Portable Sticky Notes for Windows
+## UltraNote v1.6.0 — Portable Sticky Notes for Windows
 
 A modern recreation of ATnotes (2005) built with pure Win32 API and C++17. Lightweight, portable, and dependency-free.
 
-### What's New in v1.5.0
+### What's New in v1.6.0
 
-**New per-note "Hide" hotkey:**
-- Configurable shortcut (default **Alt+H**) hides the focused note — equivalent to the "Hide" entry in the note context menu
-- Also works in the note list: select one or more notes and press Alt+H to hide them all at once
+**Import & Export of notes:**
+- New `.unote` export format (JSON) — share notes between machines or back them up
+- Export the current selection from the note list, or fall back to all visible notes when nothing is selected
+- Import always assigns fresh IDs, so re-importing the same file never overwrites existing notes
+- Unknown folders referenced in an import are auto-created; off-screen note positions are clamped back onto a visible monitor
 
-**Hotkey suffixes in context menus:**
-- The currently configured shortcut for Delete, Always-on-Top and Hide is shown next to each menu entry (e.g. *Delete\tDel*, *Always on Top\tAlt+O*, *Hide\tAlt+H*)
-- Suffixes update live when the user changes a shortcut in *Settings → Keyboard*
+**Print notes:**
+- Print one or more notes directly from the note window or the note list (toolbar, file menu, context menu)
+- Standard Windows print dialog with margins, title bar, body text, and page numbers
+- Always prints black-on-white — note background colors are intentionally ignored for legibility
 
-**Settings dialog stays in front:**
-- When the note list is open, the settings dialog is owned by it — Windows keeps it above its owner in the z-order, so it can no longer disappear behind the note list when it loses focus
-
-**Note list activation fixes:**
-- The title bar now lights up correctly the first time the note list is opened after program start (previously it stayed in the inactive style)
-- The note list is pre-created during application start, so the very first `Show()` follows the same warm activation path as every later open
-
-**More predictable note opening:**
-- Opening a note from the note list always shows it in display mode — press Enter or double-click on the text to enter edit mode
-- Alt-modified shortcuts (Alt+H, Alt+O, …) now fire reliably in both note windows and the note-list view; previously `WM_SYSKEYDOWN` was not handled, so Alt-only shortcuts silently did nothing
-- The hotkey control in *Settings → Keyboard* explicitly accepts all modifier combinations (`HKM_SETRULES(0, 0)`), preventing the Alt modifier from being stripped on some shells
+**New toolbar icons:**
+- Dedicated `import`, `export`, and `print` icons replace the previous Shell stock glyphs
 
 ### Download
 

@@ -1002,6 +1002,7 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
     addItem(ID_NOTE_EDIT,   Ls(L"note.edit").c_str(),   SIID_RENAME);
     addItem(ID_NOTE_RENAME, Ls(L"note.rename").c_str(), SIID_DOCASSOC);
     addItemRes(ID_NOTE_COPY, Ls(L"note.copy").c_str(), IDI_COPY);
+    addItemRes(ID_NOTE_PRINT, Ls(L"note.print").c_str(), IDI_PRINT);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
     // "Set Folder" submenu
@@ -1113,6 +1114,10 @@ void NoteWindow::HandleMenuCommand(int cmd) {
 
         case ID_NOTE_NEWNOTE:
             Application::Get().CreateNewNote();
+            break;
+
+        case ID_NOTE_PRINT:
+            Application::Get().PrintNoteByIds(m_hwnd, { m_data->id });
             break;
 
         case ID_NOTE_SEARCH:

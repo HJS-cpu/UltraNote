@@ -111,6 +111,11 @@ bool NoteListWindow::Create() {
     HMENU hFileMenu = CreatePopupMenu();
     addItemRes(hFileMenu, ID_NL_NOTE_NEW, Ls(L"notelist.new_note").c_str(), IDI_NEW);
     AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
+    addItemRes(hFileMenu, ID_NL_FILE_IMPORT, Ls(L"notelist.menu_import").c_str(), IDI_IMPORT);
+    addItemRes(hFileMenu, ID_NL_FILE_EXPORT, Ls(L"notelist.menu_export").c_str(), IDI_EXPORT);
+    AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
+    addItemRes(hFileMenu, ID_NL_NOTE_PRINT, Ls(L"notelist.menu_print").c_str(), IDI_PRINT);
+    AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
     addItemRes(hFileMenu, ID_NL_FILE_CLOSE, Ls(L"notelist.close").c_str(), IDI_EXIT);
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hFileMenu),
                 Ls(L"notelist.file").c_str());
@@ -348,6 +353,15 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             switch (id) {
                 case ID_NL_FILE_CLOSE:
                     Hide();
+                    return 0;
+                case ID_NL_FILE_IMPORT:
+                    Application::Get().ImportNotesFromFile(m_hwnd);
+                    return 0;
+                case ID_NL_FILE_EXPORT:
+                    HandleExport();
+                    return 0;
+                case ID_NL_NOTE_PRINT:
+                    HandlePrint();
                     return 0;
                 case ID_NL_NOTE_NEW:
                     Application::Get().CreateNewNote();
@@ -677,6 +691,9 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     case ID_NL_NOTE_ALARM:  key = L"notelist.tb_alarm";    break;
                     case ID_NL_SHOW_ALL:    key = L"notelist.tb_show_all"; break;
                     case ID_NL_HIDE_ALL:    key = L"notelist.tb_hide_all"; break;
+                    case ID_NL_FILE_IMPORT: key = L"notelist.tb_import";   break;
+                    case ID_NL_FILE_EXPORT: key = L"notelist.tb_export";   break;
+                    case ID_NL_NOTE_PRINT:  key = L"notelist.tb_print";    break;
                 }
                 if (key) {
                     std::wstring text = Ls(key);
@@ -944,7 +961,7 @@ void NoteListWindow::CreateToolbar() {
     // Create image list with shell stock icons
     int cx = GetSystemMetrics(SM_CXSMICON);
     int cy = GetSystemMetrics(SM_CYSMICON);
-    m_hToolbarImages = ImageList_Create(cx, cy, ILC_COLOR32, 7, 1);
+    m_hToolbarImages = ImageList_Create(cx, cy, ILC_COLOR32, 10, 1);
 
     // Icon sources: -1 = resource icon, otherwise SHSTOCKICONID
     struct { int siid; UINT resId; } icons[] = {
@@ -955,6 +972,9 @@ void NoteListWindow::CreateToolbar() {
         { -1,                  IDI_HIDE_ALL }, // 4: Hide All
         { SIID_DOCASSOC,       0 },            // 5: Rename
         { -1,                  IDI_ALARM },    // 6: Alarm
+        { -1,                  IDI_IMPORT },   // 7: Import
+        { -1,                  IDI_EXPORT },   // 8: Export
+        { -1,                  IDI_PRINT },    // 9: Print
     };
     for (auto& icon : icons) {
         HBITMAP hBmp = nullptr;
@@ -981,6 +1001,11 @@ void NoteListWindow::CreateToolbar() {
         { 0, 0,                 0,               BTNS_SEP,    {0}, 0, 0 },
         { 3, ID_NL_SHOW_ALL,    TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
         { 4, ID_NL_HIDE_ALL,    TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
+        { 0, 0,                 0,               BTNS_SEP,    {0}, 0, 0 },
+        { 8, ID_NL_FILE_EXPORT, TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
+        { 7, ID_NL_FILE_IMPORT, TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
+        { 0, 0,                 0,               BTNS_SEP,    {0}, 0, 0 },
+        { 9, ID_NL_NOTE_PRINT,  TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0 },
     };
 
     SendMessageW(m_hToolbar, TB_ADDBUTTONS, _countof(buttons),
@@ -2216,6 +2241,106 @@ void NoteListWindow::ShowSetFolderMenu() {
 }
 
 // ============================================================================
+// Export with empty-selection fallback ("All" / "Cancel" task dialog)
+// ============================================================================
+
+void NoteListWindow::HandleExport() {
+    // Collect currently selected note IDs from the ListView
+    std::vector<uint64_t> ids;
+    int idx = -1;
+    while ((idx = ListView_GetNextItem(m_hListView, idx, LVNI_SELECTED)) >= 0) {
+        LVITEMW item = {};
+        item.mask  = LVIF_PARAM;
+        item.iItem = idx;
+        ListView_GetItem(m_hListView, &item);
+        ids.push_back(static_cast<uint64_t>(item.lParam));
+    }
+
+    if (ids.empty()) {
+        // Empty selection — ask whether to export everything currently visible
+        // (all items in the ListView, i.e. respecting folder/search filters).
+        std::wstring title       = Ls(L"export.empty_selection_title");
+        std::wstring instruction = Ls(L"export.empty_selection_title");
+        std::wstring content     = Ls(L"export.empty_selection_text");
+        std::wstring btnAll      = Ls(L"export.btn_all");
+        std::wstring btnCancel   = Ls(L"export.btn_cancel");
+
+        TASKDIALOG_BUTTON buttons[] = {
+            { 100, btnAll.c_str() },
+            { IDCANCEL, btnCancel.c_str() },
+        };
+        TASKDIALOGCONFIG cfg = {};
+        cfg.cbSize             = sizeof(cfg);
+        cfg.hwndParent         = m_hwnd;
+        cfg.dwFlags            = TDF_POSITION_RELATIVE_TO_WINDOW;
+        cfg.pszWindowTitle     = L"UltraNote";
+        cfg.pszMainIcon        = TD_INFORMATION_ICON;
+        cfg.pszMainInstruction = instruction.c_str();
+        cfg.pszContent         = content.c_str();
+        cfg.cButtons           = _countof(buttons);
+        cfg.pButtons           = buttons;
+        cfg.nDefaultButton     = 100;
+
+        int clicked = 0;
+        if (FAILED(TaskDialogIndirect(&cfg, &clicked, nullptr, nullptr))) return;
+        if (clicked != 100) return;
+
+        // Collect all currently-visible items
+        int n = ListView_GetItemCount(m_hListView);
+        ids.reserve(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            LVITEMW it = {};
+            it.mask  = LVIF_PARAM;
+            it.iItem = i;
+            ListView_GetItem(m_hListView, &it);
+            ids.push_back(static_cast<uint64_t>(it.lParam));
+        }
+        if (ids.empty()) return;
+    }
+
+    Application::Get().ExportNotesByIds(m_hwnd, ids);
+}
+
+// ============================================================================
+// Print with empty-selection hint (single "Cancel" task dialog)
+// ============================================================================
+
+void NoteListWindow::HandlePrint() {
+    std::vector<uint64_t> ids;
+    int idx = -1;
+    while ((idx = ListView_GetNextItem(m_hListView, idx, LVNI_SELECTED)) >= 0) {
+        LVITEMW item = {};
+        item.mask  = LVIF_PARAM;
+        item.iItem = idx;
+        ListView_GetItem(m_hListView, &item);
+        ids.push_back(static_cast<uint64_t>(item.lParam));
+    }
+
+    if (ids.empty()) {
+        std::wstring instr   = Ls(L"print.no_selection_title");
+        std::wstring content = Ls(L"print.no_selection_text");
+        std::wstring btn     = Ls(L"print.btn_cancel");
+
+        TASKDIALOG_BUTTON buttons[] = { { IDCANCEL, btn.c_str() } };
+        TASKDIALOGCONFIG cfg = {};
+        cfg.cbSize             = sizeof(cfg);
+        cfg.hwndParent         = m_hwnd;
+        cfg.dwFlags            = TDF_POSITION_RELATIVE_TO_WINDOW;
+        cfg.pszWindowTitle     = L"UltraNote";
+        cfg.pszMainIcon        = TD_INFORMATION_ICON;
+        cfg.pszMainInstruction = instr.c_str();
+        cfg.pszContent         = content.c_str();
+        cfg.cButtons           = _countof(buttons);
+        cfg.pButtons           = buttons;
+        cfg.nDefaultButton     = IDCANCEL;
+        TaskDialogIndirect(&cfg, nullptr, nullptr, nullptr);
+        return;
+    }
+
+    Application::Get().PrintNoteByIds(m_hwnd, ids);
+}
+
+// ============================================================================
 // Toggle hidden / always-on-top from list
 // ============================================================================
 
@@ -2342,6 +2467,9 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
     addItemRes(ID_NL_NOTE_ALARM, Ls(L"notelist.alarm").c_str(), IDI_ALARM, singleFlag);
+
+    AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
+    addItemRes(ID_NL_NOTE_PRINT, Ls(L"notelist.print").c_str(), IDI_PRINT);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
     addItemRes(ID_NL_NOTE_DELETE,

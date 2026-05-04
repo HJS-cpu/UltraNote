@@ -25,6 +25,9 @@ IDI_CUT        ICON "cut.ico"
 IDI_SELECT_ALL ICON "select_all.ico"
 IDI_DATETIME   ICON "datum.ico"
 IDI_INSERT_PATH ICON "path.ico"
+IDI_IMPORT     ICON "import.ico"
+IDI_EXPORT     ICON "export.ico"
+IDI_PRINT      ICON "print.ico"
 
 // Tray right-click context menu
 IDR_TRAY_MENU MENU

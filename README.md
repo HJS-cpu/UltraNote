@@ -109,6 +109,11 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 
 ## Changelog
 
+### v1.6.0 (2026-05-04)
+- **Import & Export:** new `.unote` JSON format — export the current selection (or all visible notes) and import on another machine; imports always get fresh IDs so duplicates are never overwritten, unknown folders are auto-created, off-screen positions are clamped back on-screen
+- **Print notes:** print one or more notes from the note window or the note list (toolbar / file menu / context menu) via the standard Windows print dialog; always black-on-white for legibility
+- **New toolbar icons:** dedicated `import`, `export`, and `print` icons replace the previous Shell stock glyphs
+
 ### v1.5.0 (2026-04-30)
 - **New per-note hotkey "Hide":** configurable shortcut (default Alt+H) hides the focused note — also works for all selected notes in the note list
 - **Hotkey suffixes in context menus:** the configured shortcut for Delete, Always-on-Top, and Hide is shown next to each menu entry in both the note and the note-list context menu, kept in sync with the settings tab
