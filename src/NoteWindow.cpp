@@ -906,13 +906,46 @@ LRESULT CALLBACK NoteWindow::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam
 
     switch (msg) {
         case WM_KEYDOWN:
-            if (wParam == VK_RETURN && (GetKeyState(VK_CONTROL) & 0x8000)) {
-                self->ExitEditMode(true);
-                return 0;
+        case WM_SYSKEYDOWN:
+            if (msg == WM_KEYDOWN) {
+                if (wParam == VK_RETURN && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                    self->ExitEditMode(true);
+                    return 0;
+                }
+                if (wParam == VK_ESCAPE) {
+                    self->ExitEditMode(false);
+                    return 0;
+                }
             }
-            if (wParam == VK_ESCAPE) {
-                self->ExitEditMode(false);
-                return 0;
+            // Forward configurable per-note shortcuts that include Ctrl/Alt so
+            // they fire even while the EDIT control has focus. Plain or
+            // Shift-only bindings stay with the editor (e.g. default Del for
+            // SC_DELETE must keep deleting characters here).
+            {
+                auto sc = SettingsDialog::LoadFromStorage().shortcuts;
+                auto hasCtrlAlt = [](WORD hk) {
+                    return hk != 0 &&
+                           (HIBYTE(hk) & (HOTKEYF_CONTROL | HOTKEYF_ALT)) != 0;
+                };
+                if (hasCtrlAlt(sc[SC_HIDE]) &&
+                    MatchesShortcut(sc[SC_HIDE], wParam)) {
+                    self->ExitEditMode(true);
+                    self->HandleMenuCommand(ID_NOTE_HIDE);
+                    return 0;
+                }
+                if (hasCtrlAlt(sc[SC_ALWAYS_ON_TOP]) &&
+                    MatchesShortcut(sc[SC_ALWAYS_ON_TOP], wParam)) {
+                    self->HandleMenuCommand(ID_NOTE_ALWAYSONTOP);
+                    return 0;
+                }
+                if (hasCtrlAlt(sc[SC_DELETE]) &&
+                    MatchesShortcut(sc[SC_DELETE], wParam)) {
+                    HWND appWnd = FindWindowW(L"UltraNoteApp", L"UltraNote");
+                    if (appWnd)
+                        PostMessageW(appWnd, WM_NOTE_REQUEST_DELETE,
+                                     static_cast<WPARAM>(self->m_data->id), 0);
+                    return 0;
+                }
             }
             break;
 

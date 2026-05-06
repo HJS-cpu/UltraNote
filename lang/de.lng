@@ -18,9 +18,9 @@ menu.exit=&Beenden
 
 note.edit=&Bearbeiten	Enter
 note.copy=&Kopieren
-note.delete=&Löschen	Entf
+note.delete=&Löschen
 note.hide=&Verstecken
-note.always_on_top=Immer im &Vordergrund	Alt+O
+note.always_on_top=Immer im &Vordergrund
 note.new_note=&Neue Notiz
 note.rename=&Umbenennen	F2
 note.attachments=&Anhänge
