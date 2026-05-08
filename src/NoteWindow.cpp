@@ -920,8 +920,10 @@ LRESULT CALLBACK NoteWindow::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam
             // Forward configurable per-note shortcuts that include Ctrl/Alt so
             // they fire even while the EDIT control has focus. Plain or
             // Shift-only bindings stay with the editor (e.g. default Del for
-            // SC_DELETE must keep deleting characters here).
-            {
+            // SC_DELETE must keep deleting characters here). The modifier
+            // pre-check avoids parsing settings.json on every plain keystroke.
+            if ((GetKeyState(VK_CONTROL) & 0x8000) ||
+                (GetKeyState(VK_MENU) & 0x8000)) {
                 auto sc = SettingsDialog::LoadFromStorage().shortcuts;
                 auto hasCtrlAlt = [](WORD hk) {
                     return hk != 0 &&
