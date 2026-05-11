@@ -1537,6 +1537,10 @@ void Application::ApplySettings() {
     if (data.language != Localization::Get().GetCurrentLanguage()) {
         ChangeLanguage(data.language);
     }
+
+    // Heal autostart entry: if the setting is on, ensure the Run-key value
+    // exists and points at the current EXE (covers EXE-move/rename cases).
+    SettingsDialog::SyncAutostart(data.autostartEnabled);
 }
 
 // Convert HOTKEYF_* flags to MOD_* flags for RegisterHotKey

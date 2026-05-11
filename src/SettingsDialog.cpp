@@ -8,6 +8,46 @@
 
 COLORREF SettingsDialog::s_customColors[16] = {};
 
+// ----------------------------------------------------------------------------
+// Autostart helpers (HKCU\Software\Microsoft\Windows\CurrentVersion\Run).
+// This is the only Registry use in the whole project; see CLAUDE.md.
+// ----------------------------------------------------------------------------
+namespace {
+    std::wstring GetSelfExePath() {
+        wchar_t path[MAX_PATH];
+        DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
+        return (n > 0) ? std::wstring(path, n) : std::wstring();
+    }
+
+    bool ApplyAutostartRegistry(bool enable) {
+        HKEY hKey = nullptr;
+        LONG rc = RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+            0, KEY_SET_VALUE, &hKey);
+        if (rc != ERROR_SUCCESS) return false;
+
+        bool ok = true;
+        if (enable) {
+            std::wstring exe = GetSelfExePath();
+            if (exe.empty()) { RegCloseKey(hKey); return false; }
+            std::wstring quoted = L"\"" + exe + L"\"";
+            DWORD bytes = static_cast<DWORD>((quoted.size() + 1) * sizeof(wchar_t));
+            rc = RegSetValueExW(hKey, L"UltraNote", 0, REG_SZ,
+                reinterpret_cast<const BYTE*>(quoted.c_str()), bytes);
+            ok = (rc == ERROR_SUCCESS);
+        } else {
+            rc = RegDeleteValueW(hKey, L"UltraNote");
+            ok = (rc == ERROR_SUCCESS || rc == ERROR_FILE_NOT_FOUND);
+        }
+        RegCloseKey(hKey);
+        return ok;
+    }
+}
+
+void SettingsDialog::SyncAutostart(bool enabled) {
+    ApplyAutostartRegistry(enabled);
+}
+
 // Default shortcut definitions
 static const ShortcutDef s_shortcutDefs[SC_COUNT] = {
     { SC_DELETE,         L"shortcut.delete",        L"settings.sc_delete",        MAKEWORD(VK_DELETE, 0) },
@@ -57,6 +97,7 @@ SettingsData SettingsDialog::LoadFromStorage() {
     d.previewDelay     = getInt(L"preview.delay", 400);
     d.clickableLinks   = getInt(L"display.clickableLinks", 1) != 0;
     d.trayDoubleClick  = getInt(L"tray.doubleclick", 0);
+    d.autostartEnabled = getInt(L"autostart.enabled", 0) != 0;
     d.language         = getStr(L"default.language", Localization::Get().GetCurrentLanguage().c_str());
 
     d.newNoteX       = getInt(L"newnote.x", 100);
@@ -96,6 +137,7 @@ void SettingsDialog::SaveToStorage(const SettingsData& data) {
     intS[L"preview.delay"]         = data.previewDelay;
     intS[L"display.clickableLinks"] = data.clickableLinks ? 1 : 0;
     intS[L"tray.doubleclick"]      = data.trayDoubleClick;
+    intS[L"autostart.enabled"]     = data.autostartEnabled ? 1 : 0;
     strS[L"default.language"]      = data.language;
 
     intS[L"newnote.x"]             = data.newNoteX;
@@ -113,6 +155,8 @@ void SettingsDialog::SaveToStorage(const SettingsData& data) {
     }
 
     Storage::SaveAllSettings(intS, strS);
+
+    ApplyAutostartRegistry(data.autostartEnabled);
 }
 
 // ============================================================================
@@ -130,7 +174,7 @@ bool SettingsDialog::Show(HWND hParent) {
 
     dlg.tmpl.style = DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU;
     dlg.tmpl.cx = 240;  // DLU
-    dlg.tmpl.cy = 210;  // DLU
+    dlg.tmpl.cy = 245;  // DLU (Misc-Tab braucht Platz fuer Initial-Text-Vorschau)
 
     SettingsDialog self;
     self.m_data = LoadFromStorage();
@@ -158,6 +202,11 @@ INT_PTR CALLBACK SettingsDialog::DlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
 
     switch (msg) {
         case WM_COMMAND:
+            // Live preview of the initial-text template
+            if (HIWORD(wParam) == EN_CHANGE && LOWORD(wParam) == IDC_INITIAL_TEXT_EDIT) {
+                self->UpdateInitialTextPreview();
+                return TRUE;
+            }
             switch (LOWORD(wParam)) {
                 case IDC_SETTINGS_OK: {
                     self->ReadFromControls();
@@ -831,6 +880,20 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     SendMessageW(hCombo1, CB_SETCURSEL, m_data.trayDoubleClick, 0);
     y += rowH + groupGap;
 
+    // --- Group: Startup ---
+    addGroupHeader(L"settings.group_startup");
+
+    HWND hAutostartCheck = CreateWindowExW(0, L"BUTTON",
+        Ls(L"settings.autostart_enabled").c_str(),
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        ix, y, contentW - indent, 18,
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_AUTOSTART_ENABLED)),
+        nullptr, nullptr);
+    SendMessageW(hAutostartCheck, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
+    if (m_data.autostartEnabled)
+        SendMessageW(hAutostartCheck, BM_SETCHECK, BST_CHECKED, 0);
+    y += rowH + groupGap;
+
     // --- Group: Language ---
     addGroupHeader(L"settings.language");
 
@@ -943,12 +1006,46 @@ void SettingsDialog::CreateMiscTab(HWND hwnd) {
     y += rowH;
 
     // Multiline edit for initial text
+    int initEditW = labelW + 100;
+    int initEditH = 80;
     HWND hInitEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", m_data.initialText.c_str(),
         WS_CHILD | ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL | WS_VSCROLL,
-        x, y, labelW + 100, 80,
+        x, y, initEditW, initEditH,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_INITIAL_TEXT_EDIT)),
         nullptr, nullptr);
     m_tabControls[3].push_back(hInitEdit);
+    y += initEditH + 6;
+
+    // Preview label + read-only multiline edit showing the resolved text
+    HWND hPreviewLabel = CreateWindowExW(0, L"STATIC", Ls(L"settings.preview_label").c_str(),
+        WS_CHILD | SS_LEFT, x, y, labelW, 16, hwnd, nullptr, nullptr, nullptr);
+    m_tabControls[3].push_back(hPreviewLabel);
+    y += 18;
+
+    int cursorPos = -1;
+    std::wstring resolved = ExpandInitialText(m_data.initialText, cursorPos);
+    HWND hPreview = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", resolved.c_str(),
+        WS_CHILD | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
+        x, y, initEditW, 56,
+        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_INITIAL_TEXT_PREVIEW)),
+        nullptr, nullptr);
+    m_tabControls[3].push_back(hPreview);
+}
+
+void SettingsDialog::UpdateInitialTextPreview() {
+    HWND hEdit = GetDlgItem(m_hwnd, IDC_INITIAL_TEXT_EDIT);
+    HWND hPreview = GetDlgItem(m_hwnd, IDC_INITIAL_TEXT_PREVIEW);
+    if (!hEdit || !hPreview) return;
+
+    std::wstring tmpl;
+    int len = GetWindowTextLengthW(hEdit);
+    if (len > 0) {
+        tmpl.resize(len);
+        GetWindowTextW(hEdit, &tmpl[0], len + 1);
+    }
+    int cursorPos = -1;
+    std::wstring resolved = ExpandInitialText(tmpl, cursorPos);
+    SetWindowTextW(hPreview, resolved.c_str());
 }
 
 // ============================================================================
@@ -1188,6 +1285,9 @@ void SettingsDialog::ReadFromControls() {
 
     HWND hCombo = GetDlgItem(gp, IDC_TRAY_DBLCLICK);
     if (hCombo) m_data.trayDoubleClick = static_cast<int>(SendMessageW(hCombo, CB_GETCURSEL, 0, 0));
+
+    HWND hAutostart = GetDlgItem(gp, IDC_AUTOSTART_ENABLED);
+    if (hAutostart) m_data.autostartEnabled = (SendMessageW(hAutostart, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     HWND hLang = GetDlgItem(gp, IDC_LANGUAGE);
     if (hLang) {

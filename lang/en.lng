@@ -163,6 +163,8 @@ settings.group_display=Display
 settings.group_delete=Delete
 settings.group_save=Save
 settings.group_tray=System Tray
+settings.group_startup=Startup
+settings.autostart_enabled=Run UltraNote automatically at Windows startup
 
 settings.autosave=Automatically every
 settings.seconds=sec.

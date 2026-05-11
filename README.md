@@ -109,6 +109,11 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 
 ## Changelog
 
+### v1.7.0 (2026-05-11)
+- **Run at Windows startup:** new toggle in the General settings tab; writes a single `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\UltraNote` value (the only registry use in the project) and self-heals the path on the next launch if the EXE was moved
+- **Live preview for the initial-text template:** the Misc tab shows the resolved text right below the editor — strftime variables (`%x`, `%X`, `%#c`, …) are expanded in real time against the current Windows locale
+- **Robust format handling:** `ExpandInitialText` now validates each `%`-token individually, so partial or invalid specifiers (`%`, `%q`, `%E` without a letter) are passed through literally instead of triggering MSVC's `wcsftime` debug assertion
+
 ### v1.6.0 (2026-05-04)
 - **Import & Export:** new `.unote` JSON format — export the current selection (or all visible notes) and import on another machine; imports always get fresh IDs so duplicates are never overwritten, unknown folders are auto-created, off-screen positions are clamped back on-screen
 - **Print notes:** print one or more notes from the note window or the note list (toolbar / file menu / context menu) via the standard Windows print dialog; always black-on-white for legibility

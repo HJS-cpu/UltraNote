@@ -46,6 +46,7 @@ struct SettingsData {
     int      previewDelay       = 400;
     bool     clickableLinks     = true;
     int      trayDoubleClick    = 0;   // 0=new note, 1=note list, 2=show all
+    bool     autostartEnabled   = false;
     std::wstring language       = L"en";
 
     // Misc (Tab 4)
@@ -75,6 +76,10 @@ public:
     // Get default shortcut definitions
     static const ShortcutDef* GetShortcutDefs();
 
+    // Synchronize the Windows-login autostart entry with the given desired state.
+    // Best-effort: any registry error is swallowed (returns no result).
+    static void SyncAutostart(bool enabled);
+
 private:
     static INT_PTR CALLBACK DlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -101,6 +106,7 @@ private:
     void PopulateLanguageCombo();
     void PopulateFolderCombo();
     void ShowInsertVariableMenu();
+    void UpdateInitialTextPreview();
 
     // Read current values from controls
     void ReadFromControls();

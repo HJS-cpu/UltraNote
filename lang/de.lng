@@ -163,6 +163,8 @@ settings.group_display=Anzeigen
 settings.group_delete=Löschen
 settings.group_save=Speichern
 settings.group_tray=System Tray
+settings.group_startup=Systemstart
+settings.autostart_enabled=UltraNote beim Windows-Start automatisch laden
 
 settings.autosave=Automatisch alle
 settings.seconds=Sek.

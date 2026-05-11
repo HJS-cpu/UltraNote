@@ -1,7 +1,7 @@
 #pragma once
 
 // Version
-#define ULTRANOTE_VERSION       L"v1.6.0"
+#define ULTRANOTE_VERSION       L"v1.7.0"
 
 // Icons
 #define IDI_APP                 101
@@ -124,6 +124,7 @@
 #define IDC_TRAY_DBLCLICK       536
 #define IDC_LANGUAGE            537
 #define IDC_CLICKABLE_LINKS     538
+#define IDC_AUTOSTART_ENABLED   539
 
 // Global hotkey IDs (for RegisterHotKey)
 #define IDH_GLOBAL_NEWNOTE      1
@@ -144,6 +145,7 @@
 // Tab 4: Initial text
 #define IDC_INITIAL_TEXT_EDIT   550
 #define IDC_INITIAL_TEXT_INSERT 551
+#define IDC_INITIAL_TEXT_PREVIEW 552
 
 // Initial text insert menu (variable picker)
 #define ID_INITTEXT_BASE        560
