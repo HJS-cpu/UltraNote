@@ -142,6 +142,18 @@ private:
     static constexpr int FOLDER_MAX_WIDTH    = 400;
     static constexpr int FOLDER_DEFAULT_WIDTH = 150;
 
+    static constexpr int SEARCH_EDIT_WIDTH  = 160;
+    static constexpr int SEARCH_EDIT_HEIGHT = 22;
+    // Hover-to-preview poll interval (ms). The shorter this is, the snappier
+    // the preview appears once the user actually settles on a row, but the
+    // more often the timer wakes up while moving the mouse over the list.
+    static constexpr UINT PREVIEW_HOVER_TICK_MS = 100;
+    // Toolbar background and zebra-stripe row background. Chosen to sit just
+    // a hair below COLOR_WINDOW so the toolbar reads as a band and the
+    // alternating rows read as faint shading without competing with text.
+    static constexpr COLORREF COLOR_TOOLBAR_BG = RGB(225, 225, 225);
+    static constexpr COLORREF COLOR_ZEBRA_BG   = RGB(245, 245, 245);
+
     // Header click tracking (to ignore spurious WM_LBUTTONUP without prior WM_LBUTTONDOWN)
     bool     m_headerMouseDown    = false;
 

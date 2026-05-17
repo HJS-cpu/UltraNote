@@ -101,6 +101,8 @@ public:
     COLORREF  GetSearchHighlightColor() const { return m_searchHlColor; }
     HBITMAP   GetMenuBitmap(SHSTOCKICONID id);
     HBITMAP   GetResourceBitmap(UINT iconResId);
+    void      AppendMenuItem(HMENU hMenu, UINT id, const wchar_t* text,
+                             SHSTOCKICONID iconId, UINT flags = 0);
     void      AppendMenuItemRes(HMENU hMenu, UINT id, const wchar_t* text,
                                 UINT iconResId, UINT flags = 0);
 
@@ -112,8 +114,6 @@ private:
     void RemoveTrayIcon();
     void ShowTrayMenu();
     void LoadMenuBitmaps();
-    void AppendMenuItem(HMENU hMenu, UINT id, const wchar_t* text,
-                        SHSTOCKICONID iconId, UINT flags = 0);
     void ChangeLanguage(const std::wstring& langCode);
 
     static LRESULT CALLBACK AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);

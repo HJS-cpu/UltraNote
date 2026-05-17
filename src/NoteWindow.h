@@ -94,6 +94,9 @@ private:
     void InsertAtCursor(const std::wstring& text);
     void InsertFilePathAtCursor();
 
+    // Resize the EDIT control to fill the note interior minus the attachment bar.
+    void LayoutEditCtrl();
+
     // Sync NoteData position from current window rect
     void SyncDataFromWindow();
 

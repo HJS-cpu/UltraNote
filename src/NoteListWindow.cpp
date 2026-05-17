@@ -83,72 +83,45 @@ bool NoteListWindow::Create() {
     if (hIconSmall) SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(hIconSmall));
     if (hIconBig)   SendMessageW(m_hwnd, WM_SETICON, ICON_BIG,   reinterpret_cast<LPARAM>(hIconBig));
 
-    // Helpers: append menu item with shell stock icon or resource icon
     auto& app = Application::Get();
-    auto addItem = [&](HMENU hMenu, UINT id, const wchar_t* text, SHSTOCKICONID iconId) {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP;
-        mii.wID        = id;
-        mii.dwTypeData = const_cast<wchar_t*>(text);
-        mii.hbmpItem   = app.GetMenuBitmap(iconId);
-        InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
-    };
-    auto addItemRes = [&](HMENU hMenu, UINT id, const wchar_t* text, UINT iconResId) {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP;
-        mii.wID        = id;
-        mii.dwTypeData = const_cast<wchar_t*>(text);
-        mii.hbmpItem   = app.GetResourceBitmap(iconResId);
-        InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
-    };
 
     // Build menu bar programmatically
     HMENU hMenuBar = CreateMenu();
 
     // File menu
     HMENU hFileMenu = CreatePopupMenu();
-    addItemRes(hFileMenu, ID_NL_NOTE_NEW, Ls(L"notelist.new_note").c_str(), IDI_NEW);
+    app.AppendMenuItemRes(hFileMenu, ID_NL_NOTE_NEW, Ls(L"notelist.new_note").c_str(), IDI_NEW);
     AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
-    addItemRes(hFileMenu, ID_NL_FILE_IMPORT, Ls(L"notelist.menu_import").c_str(), IDI_IMPORT);
-    addItemRes(hFileMenu, ID_NL_FILE_EXPORT, Ls(L"notelist.menu_export").c_str(), IDI_EXPORT);
+    app.AppendMenuItemRes(hFileMenu, ID_NL_FILE_IMPORT, Ls(L"notelist.menu_import").c_str(), IDI_IMPORT);
+    app.AppendMenuItemRes(hFileMenu, ID_NL_FILE_EXPORT, Ls(L"notelist.menu_export").c_str(), IDI_EXPORT);
     AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
-    addItemRes(hFileMenu, ID_NL_NOTE_PRINT, Ls(L"notelist.menu_print").c_str(), IDI_PRINT);
+    app.AppendMenuItemRes(hFileMenu, ID_NL_NOTE_PRINT, Ls(L"notelist.menu_print").c_str(), IDI_PRINT);
     AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
-    addItemRes(hFileMenu, ID_NL_FILE_CLOSE, Ls(L"notelist.close").c_str(), IDI_EXIT);
+    app.AppendMenuItemRes(hFileMenu, ID_NL_FILE_CLOSE, Ls(L"notelist.close").c_str(), IDI_EXIT);
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hFileMenu),
                 Ls(L"notelist.file").c_str());
 
     // Note menu
     HMENU hNoteMenu = CreatePopupMenu();
-    addItem(hNoteMenu, ID_NL_NOTE_EDIT,   Ls(L"notelist.edit").c_str(),   SIID_RENAME);
-    addItem(hNoteMenu, ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str(), SIID_DOCASSOC);
-    addItemRes(hNoteMenu, ID_NL_NOTE_DELETE, Ls(L"notelist.delete").c_str(), IDI_DELETE);
+    app.AppendMenuItem(hNoteMenu, ID_NL_NOTE_EDIT,   Ls(L"notelist.edit").c_str(),   SIID_RENAME);
+    app.AppendMenuItem(hNoteMenu, ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str(), SIID_DOCASSOC);
+    app.AppendMenuItemRes(hNoteMenu, ID_NL_NOTE_DELETE, Ls(L"notelist.delete").c_str(), IDI_DELETE);
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hNoteMenu),
                 Ls(L"notelist.note").c_str());
 
     // Folder menu
     HMENU hFolderMenu = CreatePopupMenu();
-    addItem(hFolderMenu, ID_NL_FOLDER_NEW,    Ls(L"folder.new").c_str(),    SIID_FOLDER);
-    addItem(hFolderMenu, ID_NL_FOLDER_RENAME, Ls(L"folder.rename").c_str(), SIID_RENAME);
-    addItemRes(hFolderMenu, ID_NL_FOLDER_DELETE, Ls(L"folder.delete").c_str(), IDI_DELETE);
+    app.AppendMenuItem(hFolderMenu, ID_NL_FOLDER_NEW,    Ls(L"folder.new").c_str(),    SIID_FOLDER);
+    app.AppendMenuItem(hFolderMenu, ID_NL_FOLDER_RENAME, Ls(L"folder.rename").c_str(), SIID_RENAME);
+    app.AppendMenuItemRes(hFolderMenu, ID_NL_FOLDER_DELETE, Ls(L"folder.delete").c_str(), IDI_DELETE);
     AppendMenuW(hMenuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(hFolderMenu),
                 Ls(L"notelist.folder_menu").c_str());
 
     // Options menu
     HMENU hOptionsMenu = CreatePopupMenu();
-    {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP;
-        mii.wID        = ID_NL_SETTINGS;
-        mii.dwTypeData = const_cast<wchar_t*>(Ls(L"menu.settings").c_str());
-        mii.hbmpItem   = app.GetResourceBitmap(IDI_SETTINGS);
-        InsertMenuItemW(hOptionsMenu, GetMenuItemCount(hOptionsMenu), TRUE, &mii);
-    }
+    app.AppendMenuItemRes(hOptionsMenu, ID_NL_SETTINGS, Ls(L"menu.settings").c_str(), IDI_SETTINGS);
     AppendMenuW(hOptionsMenu, MF_SEPARATOR, 0, nullptr);
-    addItemRes(hOptionsMenu, ID_NL_ABOUT, Ls(L"menu.about").c_str(), IDI_ABOUT);
+    app.AppendMenuItemRes(hOptionsMenu, ID_NL_ABOUT, Ls(L"menu.about").c_str(), IDI_ABOUT);
     AppendMenuW(hOptionsMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hOptionsMenu, MF_STRING | (m_previewEnabled ? MF_CHECKED : 0),
                 ID_NL_PREVIEW, Ls(L"notelist.preview").c_str());
@@ -549,7 +522,7 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                 int itemIdx = static_cast<int>(cd->nmcd.dwItemSpec);
                                 bool selected = (ListView_GetItemState(m_hListView, itemIdx, LVIS_SELECTED) & LVIS_SELECTED) != 0;
                                 if (!selected && m_zebraStriping && (itemIdx % 2 == 1)) {
-                                    cd->clrTextBk = RGB(245, 245, 245);
+                                    cd->clrTextBk = COLOR_ZEBRA_BG;
                                 }
 
                                 // Highlight rows with an alarm firing today
@@ -594,7 +567,7 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                     txColor = GetSysColor(COLOR_WINDOWTEXT);
                                     // Apply zebra striping
                                     if (m_zebraStriping && (itemIdx % 2 == 1)) {
-                                        bgColor = RGB(245, 245, 245);
+                                        bgColor = COLOR_ZEBRA_BG;
                                     }
                                 }
 
@@ -668,13 +641,13 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     case CDDS_PREPAINT: {
                         RECT rc;
                         GetClientRect(m_hToolbar, &rc);
-                        HBRUSH hBrush = CreateSolidBrush(RGB(225, 225, 225));
+                        HBRUSH hBrush = CreateSolidBrush(COLOR_TOOLBAR_BG);
                         FillRect(cd->nmcd.hdc, &rc, hBrush);
                         DeleteObject(hBrush);
                         return CDRF_NOTIFYITEMDRAW;
                     }
                     case CDDS_ITEMPREPAINT:
-                        cd->clrBtnFace = RGB(225, 225, 225);
+                        cd->clrBtnFace = COLOR_TOOLBAR_BG;
                         return TBCDRF_USECDCOLORS;
                     default:
                         return CDRF_DODEFAULT;
@@ -1025,8 +998,8 @@ void NoteListWindow::CreateSearchEdit() {
     GetWindowRect(m_hToolbar, &tbRect);
     int tbH = tbRect.bottom - tbRect.top;
 
-    int editH = 22;
-    int editW = 160;
+    int editH = SEARCH_EDIT_HEIGHT;
+    int editW = SEARCH_EDIT_WIDTH;
     int editY = (tbH - editH) / 2;
 
     // Position will be set properly in ResizeControls; create with placeholder coords
@@ -2393,35 +2366,10 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
     auto& app = Application::Get();
     auto sc = SettingsDialog::LoadFromStorage().shortcuts;
 
-    auto addItem = [&](UINT id, const wchar_t* text, SHSTOCKICONID iconId, UINT flags = 0) {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_FTYPE | MIIM_STATE;
-        mii.fType      = MFT_STRING;
-        mii.fState     = (flags & MF_GRAYED) ? MFS_GRAYED : MFS_ENABLED;
-        if (flags & MF_CHECKED) mii.fState |= MFS_CHECKED;
-        mii.wID        = id;
-        mii.dwTypeData = const_cast<wchar_t*>(text);
-        mii.hbmpItem   = app.GetMenuBitmap(iconId);
-        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
-    };
-    auto addItemRes = [&](UINT id, const wchar_t* text, UINT iconResId, UINT flags = 0) {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_FTYPE | MIIM_STATE;
-        mii.fType      = MFT_STRING;
-        mii.fState     = (flags & MF_GRAYED) ? MFS_GRAYED : MFS_ENABLED;
-        if (flags & MF_CHECKED) mii.fState |= MFS_CHECKED;
-        mii.wID        = id;
-        mii.dwTypeData = const_cast<wchar_t*>(text);
-        mii.hbmpItem   = app.GetResourceBitmap(iconResId);
-        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
-    };
-
     // Edit/Rename only for single selection
     UINT singleFlag = multiSelect ? MF_GRAYED : 0;
-    addItem(ID_NL_NOTE_EDIT,   Ls(L"notelist.edit").c_str(),   SIID_RENAME,   singleFlag);
-    addItem(ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str(), SIID_DOCASSOC, singleFlag);
+    app.AppendMenuItem(hPopup, ID_NL_NOTE_EDIT,   Ls(L"notelist.edit").c_str(),   SIID_RENAME,   singleFlag);
+    app.AppendMenuItem(hPopup, ID_NL_NOTE_RENAME, Ls(L"notelist.rename").c_str(), SIID_DOCASSOC, singleFlag);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
     // "Set Folder" submenu — for single selection, mark current folder with a check.
@@ -2466,15 +2414,15 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
     }
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItemRes(ID_NL_NOTE_ALARM, Ls(L"notelist.alarm").c_str(), IDI_ALARM, singleFlag);
+    app.AppendMenuItemRes(hPopup, ID_NL_NOTE_ALARM, Ls(L"notelist.alarm").c_str(), IDI_ALARM, singleFlag);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItemRes(ID_NL_NOTE_PRINT, Ls(L"notelist.print").c_str(), IDI_PRINT);
+    app.AppendMenuItemRes(hPopup, ID_NL_NOTE_PRINT, Ls(L"notelist.print").c_str(), IDI_PRINT);
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItemRes(ID_NL_NOTE_DELETE,
-               AppendShortcutSuffix(Ls(L"notelist.delete"), sc[SC_DELETE]).c_str(),
-               IDI_DELETE);
+    app.AppendMenuItemRes(hPopup, ID_NL_NOTE_DELETE,
+                          AppendShortcutSuffix(Ls(L"notelist.delete"), sc[SC_DELETE]).c_str(),
+                          IDI_DELETE);
 
     SetForegroundWindow(m_hwnd);
     TrackPopupMenu(hPopup, TPM_RIGHTBUTTON, screenX, screenY, 0, m_hwnd, nullptr);
@@ -2493,21 +2441,10 @@ void NoteListWindow::ShowFolderContextMenu(int screenX, int screenY) {
 
     auto& app = Application::Get();
 
-    auto addItem = [&](UINT id, const wchar_t* text, SHSTOCKICONID iconId) {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_FTYPE;
-        mii.fType      = MFT_STRING;
-        mii.wID        = id;
-        mii.dwTypeData = const_cast<wchar_t*>(text);
-        mii.hbmpItem   = app.GetMenuBitmap(iconId);
-        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
-    };
-
-    addItem(ID_NL_FOLDER_NEW, Ls(L"folder.new").c_str(), SIID_FOLDER);
+    app.AppendMenuItem(hPopup, ID_NL_FOLDER_NEW, Ls(L"folder.new").c_str(), SIID_FOLDER);
     if (isUserFolder) {
         AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-        addItem(ID_NL_FOLDER_RENAME, Ls(L"folder.rename").c_str(), SIID_RENAME);
+        app.AppendMenuItem(hPopup, ID_NL_FOLDER_RENAME, Ls(L"folder.rename").c_str(), SIID_RENAME);
         app.AppendMenuItemRes(hPopup, ID_NL_FOLDER_DELETE,
                               Ls(L"folder.delete").c_str(), IDI_DELETE);
     }
@@ -2585,7 +2522,7 @@ void NoteListWindow::SetPreviewPaused(bool paused) {
 
 void NoteListWindow::StartPreviewTimer() {
     if (!m_previewTimerActive && m_hwnd) {
-        SetTimer(m_hwnd, IDT_PREVIEW, 100, nullptr);
+        SetTimer(m_hwnd, IDT_PREVIEW, PREVIEW_HOVER_TICK_MS, nullptr);
         m_previewTimerActive = true;
     }
 }

@@ -350,16 +350,7 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_SIZE: {
             // Resize edit control if in edit mode
-            if (m_hEditCtrl) {
-                RECT rc;
-                GetClientRect(m_hwnd, &rc);
-                int abHeight = GetAttachmentBarHeight();
-                MoveWindow(m_hEditCtrl,
-                           TEXT_PADDING, TEXT_PADDING,
-                           rc.right - 2 * TEXT_PADDING,
-                           rc.bottom - 2 * TEXT_PADDING - abHeight,
-                           TRUE);
-            }
+            LayoutEditCtrl();
             // Repaint entire window (attachment bar moves with bottom edge)
             InvalidateRect(m_hwnd, nullptr, TRUE);
             return 0;
@@ -1009,35 +1000,10 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
     auto& app = Application::Get();
     auto sc = SettingsDialog::LoadFromStorage().shortcuts;
 
-    auto addItem = [&](UINT id, const wchar_t* text, SHSTOCKICONID iconId, UINT flags = 0) {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_FTYPE | MIIM_STATE;
-        mii.fType      = MFT_STRING;
-        mii.fState     = (flags & MF_GRAYED) ? MFS_GRAYED : MFS_ENABLED;
-        if (flags & MF_CHECKED) mii.fState |= MFS_CHECKED;
-        mii.wID        = id;
-        mii.dwTypeData = const_cast<wchar_t*>(text);
-        mii.hbmpItem   = app.GetMenuBitmap(iconId);
-        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
-    };
-    auto addItemRes = [&](UINT id, const wchar_t* text, UINT iconResId, UINT flags = 0) {
-        MENUITEMINFOW mii = {};
-        mii.cbSize     = sizeof(mii);
-        mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_FTYPE | MIIM_STATE;
-        mii.fType      = MFT_STRING;
-        mii.fState     = (flags & MF_GRAYED) ? MFS_GRAYED : MFS_ENABLED;
-        if (flags & MF_CHECKED) mii.fState |= MFS_CHECKED;
-        mii.wID        = id;
-        mii.dwTypeData = const_cast<wchar_t*>(text);
-        mii.hbmpItem   = app.GetResourceBitmap(iconResId);
-        InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
-    };
-
-    addItem(ID_NOTE_EDIT,   Ls(L"note.edit").c_str(),   SIID_RENAME);
-    addItem(ID_NOTE_RENAME, Ls(L"note.rename").c_str(), SIID_DOCASSOC);
-    addItemRes(ID_NOTE_COPY, Ls(L"note.copy").c_str(), IDI_COPY);
-    addItemRes(ID_NOTE_PRINT, Ls(L"note.print").c_str(), IDI_PRINT);
+    app.AppendMenuItem(hPopup, ID_NOTE_EDIT,   Ls(L"note.edit").c_str(),   SIID_RENAME);
+    app.AppendMenuItem(hPopup, ID_NOTE_RENAME, Ls(L"note.rename").c_str(), SIID_DOCASSOC);
+    app.AppendMenuItemRes(hPopup, ID_NOTE_COPY,  Ls(L"note.copy").c_str(),  IDI_COPY);
+    app.AppendMenuItemRes(hPopup, ID_NOTE_PRINT, Ls(L"note.print").c_str(), IDI_PRINT);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
     // "Set Folder" submenu
@@ -1069,24 +1035,24 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
     }
 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItemRes(ID_NOTE_HIDE,
-               AppendShortcutSuffix(Ls(L"note.hide"), sc[SC_HIDE]).c_str(),
-               IDI_HIDE_ALL);
-    addItemRes(ID_NOTE_DELETE,
-               AppendShortcutSuffix(Ls(L"note.delete"), sc[SC_DELETE]).c_str(),
-               IDI_DELETE);
+    app.AppendMenuItemRes(hPopup, ID_NOTE_HIDE,
+                          AppendShortcutSuffix(Ls(L"note.hide"), sc[SC_HIDE]).c_str(),
+                          IDI_HIDE_ALL);
+    app.AppendMenuItemRes(hPopup, ID_NOTE_DELETE,
+                          AppendShortcutSuffix(Ls(L"note.delete"), sc[SC_DELETE]).c_str(),
+                          IDI_DELETE);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItemRes(ID_NOTE_ALWAYSONTOP,
-               AppendShortcutSuffix(Ls(L"note.always_on_top"), sc[SC_ALWAYS_ON_TOP]).c_str(),
-               IDI_PIN,
-               m_data->layout.alwaysOnTop ? MF_CHECKED : 0);
-    addItemRes(ID_NOTE_ATTACHMENTS, Ls(L"note.attachments").c_str(), IDI_ATTACHMENT,
-               m_data->showAttachments ? MF_CHECKED : 0);
-    addItemRes(ID_NOTE_ALARM, Ls(L"note.alarm").c_str(), IDI_ALARM,
-               m_data->alarm.has_value() ? MF_CHECKED : 0);
+    app.AppendMenuItemRes(hPopup, ID_NOTE_ALWAYSONTOP,
+                          AppendShortcutSuffix(Ls(L"note.always_on_top"), sc[SC_ALWAYS_ON_TOP]).c_str(),
+                          IDI_PIN,
+                          m_data->layout.alwaysOnTop ? MF_CHECKED : 0);
+    app.AppendMenuItemRes(hPopup, ID_NOTE_ATTACHMENTS, Ls(L"note.attachments").c_str(), IDI_ATTACHMENT,
+                          m_data->showAttachments ? MF_CHECKED : 0);
+    app.AppendMenuItemRes(hPopup, ID_NOTE_ALARM, Ls(L"note.alarm").c_str(), IDI_ALARM,
+                          m_data->alarm.has_value() ? MF_CHECKED : 0);
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
-    addItemRes(ID_NOTE_SEARCH, Ls(L"note.search").c_str(), IDI_SEARCH);
-    addItemRes(ID_NOTE_NEWNOTE, Ls(L"note.new_note").c_str(), IDI_NEW);
+    app.AppendMenuItemRes(hPopup, ID_NOTE_SEARCH, Ls(L"note.search").c_str(), IDI_SEARCH);
+    app.AppendMenuItemRes(hPopup, ID_NOTE_NEWNOTE, Ls(L"note.new_note").c_str(), IDI_NEW);
 
     SetForegroundWindow(m_hwnd);
     int cmd = TrackPopupMenu(hPopup,
@@ -1135,15 +1101,7 @@ void NoteWindow::HandleMenuCommand(int cmd) {
             m_data->showAttachments = !m_data->showAttachments;
             DestroyAttachmentIcons();
             InvalidateRect(m_hwnd, nullptr, TRUE);
-            // Re-layout edit control if active
-            if (m_hEditCtrl) {
-                RECT rc;
-                GetClientRect(m_hwnd, &rc);
-                int abHeight = GetAttachmentBarHeight();
-                MoveWindow(m_hEditCtrl, TEXT_PADDING, TEXT_PADDING,
-                           rc.right - 2 * TEXT_PADDING,
-                           rc.bottom - 2 * TEXT_PADDING - abHeight, TRUE);
-            }
+            LayoutEditCtrl();
             NotifyChanged();
             break;
 
@@ -1218,6 +1176,18 @@ void NoteWindow::InsertAtCursor(const std::wstring& text) {
     if (!m_hEditCtrl) return;
     SendMessageW(m_hEditCtrl, EM_REPLACESEL, TRUE,
                  reinterpret_cast<LPARAM>(text.c_str()));
+}
+
+void NoteWindow::LayoutEditCtrl() {
+    if (!m_hEditCtrl) return;
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    int abHeight = GetAttachmentBarHeight();
+    MoveWindow(m_hEditCtrl,
+               TEXT_PADDING, TEXT_PADDING,
+               rc.right  - 2 * TEXT_PADDING,
+               rc.bottom - 2 * TEXT_PADDING - abHeight,
+               TRUE);
 }
 
 void NoteWindow::InsertFilePathAtCursor() {
@@ -1502,17 +1472,7 @@ void NoteWindow::HandleDropFiles(HDROP hDrop) {
 
     DestroyAttachmentIcons();
     InvalidateRect(m_hwnd, nullptr, TRUE);
-
-    // Re-layout edit control if active
-    if (m_hEditCtrl) {
-        RECT rc;
-        GetClientRect(m_hwnd, &rc);
-        int abHeight = GetAttachmentBarHeight();
-        MoveWindow(m_hEditCtrl, TEXT_PADDING, TEXT_PADDING,
-                   rc.right - 2 * TEXT_PADDING,
-                   rc.bottom - 2 * TEXT_PADDING - abHeight, TRUE);
-    }
-
+    LayoutEditCtrl();
     NotifyChanged();
 }
 
@@ -1529,17 +1489,7 @@ void NoteWindow::RemoveAttachment(int index) {
     m_data->attachments.erase(m_data->attachments.begin() + index);
     DestroyAttachmentIcons();
     InvalidateRect(m_hwnd, nullptr, TRUE);
-
-    // Re-layout edit control if active
-    if (m_hEditCtrl) {
-        RECT rc;
-        GetClientRect(m_hwnd, &rc);
-        int abHeight = GetAttachmentBarHeight();
-        MoveWindow(m_hEditCtrl, TEXT_PADDING, TEXT_PADDING,
-                   rc.right - 2 * TEXT_PADDING,
-                   rc.bottom - 2 * TEXT_PADDING - abHeight, TRUE);
-    }
-
+    LayoutEditCtrl();
     NotifyChanged();
 }
 
@@ -1554,14 +1504,7 @@ void NoteWindow::ShowAttachmentContextMenu(int index, int screenX, int screenY) 
     AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
     // Remove entry with delete icon
-    MENUITEMINFOW mii = {};
-    mii.cbSize     = sizeof(mii);
-    mii.fMask      = MIIM_ID | MIIM_STRING | MIIM_BITMAP;
-    mii.wID        = 1;
-    std::wstring removeText = Ls(L"note.attach_remove");
-    mii.dwTypeData = const_cast<wchar_t*>(removeText.c_str());
-    mii.hbmpItem   = app.GetResourceBitmap(IDI_DELETE);
-    InsertMenuItemW(hPopup, GetMenuItemCount(hPopup), TRUE, &mii);
+    app.AppendMenuItemRes(hPopup, 1, Ls(L"note.attach_remove").c_str(), IDI_DELETE);
 
     SetForegroundWindow(m_hwnd);
     int cmd = TrackPopupMenu(hPopup, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
