@@ -29,7 +29,7 @@ jobs:
         run: Compress-Archive -Path build/Release/UltraNote.exe, build/Release/lang -DestinationPath UltraNote-Portable.zip
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: UltraNote-Portable
           path: |
@@ -38,7 +38,7 @@ jobs:
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: "UltraNote ${{ github.ref_name }}"
           body_path: RELEASE.md
