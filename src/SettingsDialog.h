@@ -130,6 +130,8 @@ private:
     // General tab: scrollable panel + bold font for group headers
     HWND m_hGeneralPanel = nullptr;
     HFONT m_hBoldFont = nullptr;
+    HICON m_hTitleIcon = nullptr;   // title-bar icon (owned; freed at WM_DESTROY)
+    HICON m_hGroupIcon = nullptr;   // group-header icon (owned; freed at WM_DESTROY)
     std::vector<HWND> m_groupHeaders;
 
     // Custom colors for ChooseColor dialog

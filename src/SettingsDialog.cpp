@@ -16,7 +16,11 @@ namespace {
     std::wstring GetSelfExePath() {
         wchar_t path[MAX_PATH];
         DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
-        return (n > 0) ? std::wstring(path, n) : std::wstring();
+        // n >= MAX_PATH means the path was truncated; fail closed so we never
+        // write a broken path into the Run key (ApplyAutostartRegistry skips
+        // the write on an empty return).
+        if (n == 0 || n >= MAX_PATH) return std::wstring();
+        return std::wstring(path, n);
     }
 
     bool ApplyAutostartRegistry(bool enable) {
@@ -358,6 +362,15 @@ INT_PTR CALLBACK SettingsDialog::DlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         case WM_CLOSE:
             EndDialog(hwnd, IDCANCEL);
             return TRUE;
+
+        case WM_DESTROY:
+            // Free the GDI/USER handles created during the dialog's life.
+            // Create sites already destroy the previous handle on RebuildControls
+            // re-entry, so the members hold only the final live instances here.
+            if (self->m_hBoldFont)  { DeleteObject(self->m_hBoldFont); self->m_hBoldFont = nullptr; }
+            if (self->m_hTitleIcon) { DestroyIcon(self->m_hTitleIcon); self->m_hTitleIcon = nullptr; }
+            if (self->m_hGroupIcon) { DestroyIcon(self->m_hGroupIcon); self->m_hGroupIcon = nullptr; }
+            return FALSE;
     }
 
     return FALSE;
@@ -371,12 +384,15 @@ void SettingsDialog::OnInitDialog(HWND hwnd) {
     m_hwnd = hwnd;
     SetWindowTextW(hwnd, Ls(L"settings.title").c_str());
 
-    // Set dialog icon (shown in title bar)
-    HICON hIcon = static_cast<HICON>(LoadImageW(
+    // Set dialog icon (shown in title bar). Stored as a member and destroyed
+    // both on re-entry (RebuildControls re-runs OnInitDialog) and at WM_DESTROY,
+    // since LoadImageW without LR_SHARED hands us an owned icon.
+    if (m_hTitleIcon) { DestroyIcon(m_hTitleIcon); m_hTitleIcon = nullptr; }
+    m_hTitleIcon = static_cast<HICON>(LoadImageW(
         Application::Get().GetInstance(), MAKEINTRESOURCE(IDI_SETTINGS),
         IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
         LR_DEFAULTCOLOR));
-    if (hIcon) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(hIcon));
+    if (m_hTitleIcon) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(m_hTitleIcon));
 
     HFONT hFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
@@ -742,7 +758,8 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     // Load group header icon (small, 16x16)
     int iconCx = 16;
     int iconCy = 16;
-    HICON hGroupIcon = static_cast<HICON>(LoadImageW(
+    if (m_hGroupIcon) { DestroyIcon(m_hGroupIcon); m_hGroupIcon = nullptr; }
+    m_hGroupIcon = static_cast<HICON>(LoadImageW(
         GetModuleHandleW(nullptr), MAKEINTRESOURCE(IDI_GROUP),
         IMAGE_ICON, iconCx, iconCy, LR_DEFAULTCOLOR));
 
@@ -752,7 +769,7 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
             WS_CHILD | WS_VISIBLE | SS_ICON,
             x, y + (headerH - iconCy) / 2 - 1, iconCx, iconCy,
             panel, nullptr, nullptr, nullptr);
-        SendMessageW(hIcon, STM_SETICON, reinterpret_cast<WPARAM>(hGroupIcon), 0);
+        SendMessageW(hIcon, STM_SETICON, reinterpret_cast<WPARAM>(m_hGroupIcon), 0);
 
         // Label text after the icon
         int textX = x + iconCx + 4;
@@ -1128,7 +1145,7 @@ void SettingsDialog::OnChooseColor(HWND hwnd, COLORREF& color, int swatchId) {
 
 void SettingsDialog::OnChooseFont(HWND hwnd) {
     LOGFONTW lf = {};
-    wcscpy_s(lf.lfFaceName, m_data.fontFace.c_str());
+    wcsncpy_s(lf.lfFaceName, m_data.fontFace.c_str(), _TRUNCATE);
 
     HDC hdc = GetDC(hwnd);
     lf.lfHeight = -MulDiv(m_data.fontSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
