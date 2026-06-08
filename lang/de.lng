@@ -122,6 +122,7 @@ confirm.delete_one=Diese Notiz löschen?
 confirm.delete_multi=%d Notizen löschen?
 
 app.already_running=UltraNote läuft bereits.
+hotkey.register_failed=Ein globales Tastenkürzel konnte nicht registriert werden (bereits von einem anderen Programm belegt).
 note.empty=(leer)
 note.untitled=(Ohne Titel)
 

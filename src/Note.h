@@ -64,7 +64,8 @@ struct AlarmConfig {
 
     // Runtime state (persisted to survive app restart)
     int        firedCount = 0;
-    int64_t    snoozeUntil = 0;     // 0 = not snoozed; else Unix UTC timestamp (seconds)
+    int64_t    snoozeUntil = 0;     // 0 = not snoozed; else naive-local seconds since epoch
+                                    // (local wall-clock treated as UTC; see AlarmScheduler::SysTimeToNaiveSec)
     bool       paused = false;
 };
 

@@ -122,6 +122,7 @@ confirm.delete_one=Delete this note?
 confirm.delete_multi=Delete %d notes?
 
 app.already_running=UltraNote is already running.
+hotkey.register_failed=A global hotkey could not be registered (already in use by another program).
 note.empty=(empty)
 note.untitled=(Untitled)
 

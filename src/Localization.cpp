@@ -3,6 +3,56 @@
 #include <fstream>
 #include <sstream>
 
+namespace {
+    std::wstring Utf8ToWide(const std::string& s) {
+        if (s.empty()) return L"";
+        int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), nullptr, 0);
+        if (n <= 0) return L"";
+        std::wstring w(static_cast<size_t>(n), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), &w[0], n);
+        return w;
+    }
+
+    // Read the [info] name= value from a UTF-8 .lng file. GetPrivateProfileStringW
+    // would read the file as CP_ACP and mojibake any non-ASCII display name.
+    std::wstring ReadInfoName(const std::wstring& path, const std::wstring& fallback) {
+        std::ifstream f(path, std::ios::binary);
+        if (!f.is_open()) return fallback;
+        std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        size_t st = (content.size() >= 3 &&
+                     static_cast<unsigned char>(content[0]) == 0xEF &&
+                     static_cast<unsigned char>(content[1]) == 0xBB &&
+                     static_cast<unsigned char>(content[2]) == 0xBF) ? 3 : 0;
+        std::istringstream ss(content.substr(st));
+        std::string line;
+        bool inInfo = false;
+        while (std::getline(ss, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+            if (line[0] == '[') {
+                auto e = line.find(']');
+                if (e != std::string::npos) inInfo = (line.substr(1, e - 1) == "info");
+                continue;
+            }
+            if (!inInfo) continue;
+            auto eq = line.find('=');
+            if (eq == std::string::npos) continue;
+            std::string k = line.substr(0, eq);
+            while (!k.empty() && (k.back() == ' ' || k.back() == '\t')) k.pop_back();
+            size_t ks = k.find_first_not_of(" \t");
+            if (ks != std::string::npos && ks > 0) k = k.substr(ks);
+            if (k == "name") {
+                std::string v = line.substr(eq + 1);
+                size_t vs = v.find_first_not_of(" \t");
+                if (vs != std::string::npos) v = v.substr(vs);
+                std::wstring w = Utf8ToWide(v);
+                return w.empty() ? fallback : w;
+            }
+        }
+        return fallback;
+    }
+}
+
 Localization& Localization::Get() {
     static Localization instance;
     return instance;
@@ -178,15 +228,9 @@ std::vector<std::pair<std::wstring, std::wstring>> Localization::GetAvailableLan
         std::wstring code = filename.substr(0, dot);
         if (code == L"en") continue; // Already added
 
-        // Try to read the name from [info] section
+        // Read the display name from the [info] section (UTF-8 aware)
         std::wstring filePath = GetExeDirectory() + L"\\lang\\" + filename;
-        std::wstring name = code;
-
-        // Quick read for name
-        wchar_t buf[128];
-        GetPrivateProfileStringW(L"info", L"name", code.c_str(),
-                                  buf, 128, filePath.c_str());
-        name = buf;
+        std::wstring name = ReadInfoName(filePath, code);
 
         langs.push_back({code, name});
     } while (FindNextFileW(hFind, &fd));
