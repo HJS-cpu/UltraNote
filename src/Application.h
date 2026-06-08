@@ -14,6 +14,7 @@ class NoteListWindow;
 class AlarmPopupWindow;
 class TrayBubbleWindow;
 enum class AlarmAction;
+struct SettingsData;
 
 class Application {
 public:
@@ -89,7 +90,7 @@ public:
 
     // About dialog
     void ShowAboutDialog(HWND hParent);
-    void RegisterGlobalHotkeys();
+    void RegisterGlobalHotkeys(const SettingsData& data);
     void UnregisterGlobalHotkeys();
 
     // Alarms
@@ -120,6 +121,11 @@ private:
     LRESULT HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     NoteWindow* CreateNoteWindow(NoteData* data);
+
+    // Delete internals: RemoveNote destroys window + erases data + marks dirty;
+    // FinalizeDeletions does the single SaveAll + RefreshNoteList + re-show pass.
+    void RemoveNote(uint64_t id);
+    void FinalizeDeletions();
 
     HINSTANCE       m_hInst     = nullptr;
     HWND            m_hAppWnd   = nullptr;

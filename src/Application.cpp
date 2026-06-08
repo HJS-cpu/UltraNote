@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <ctime>
 #include <optional>
+#include <unordered_set>
 #include <shellapi.h>
 
 static const wchar_t* APP_WND_CLASS = L"UltraNoteApp";
@@ -357,17 +358,26 @@ static LRESULT CALLBACK AboutLinkSubclassProc(HWND hwnd, UINT msg,
 }
 
 void Application::ShowAboutDialog(HWND hParent) {
-    // Build in-memory dialog template
-    alignas(4) BYTE buf[2048] = {};
-    BYTE* p = buf;
+    // Build in-memory dialog template. Growable buffer sized ONCE (no realloc,
+    // so the dlg/item1..3 pointers taken into it stay valid); writeStr/align4
+    // clamp against the end so a long translated title can never overflow.
+    std::vector<BYTE> buf(4096, 0);
+    BYTE* const base = buf.data();
+    BYTE* const endp = base + buf.size();
+    BYTE* p = base;
 
-    auto writeStr = [&p](const wchar_t* s) {
+    auto writeStr = [&p, endp](const wchar_t* s) {
         size_t bytes = (wcslen(s) + 1) * sizeof(wchar_t);
-        memcpy(p, s, bytes);
+        if (p + bytes > endp) bytes = (endp > p) ? static_cast<size_t>(endp - p) : 0;
+        if (bytes >= sizeof(wchar_t)) {
+            memcpy(p, s, bytes - sizeof(wchar_t));
+            *reinterpret_cast<wchar_t*>(p + bytes - sizeof(wchar_t)) = L'\0';
+        }
         p += bytes;
     };
-    auto align4 = [&p]() {
+    auto align4 = [&p, endp]() {
         p = reinterpret_cast<BYTE*>((reinterpret_cast<uintptr_t>(p) + 3) & ~3);
+        if (p > endp) p = endp;
     };
 
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(p);
@@ -462,12 +472,19 @@ void Application::ShowAboutDialog(HWND hParent) {
                     return TRUE;
                 }
                 break;
+            case WM_DESTROY: {
+                // Free the non-shared small icon set in WM_INITDIALOG
+                HICON h = reinterpret_cast<HICON>(
+                    SendMessageW(hDlg, WM_GETICON, ICON_SMALL, 0));
+                if (h) DestroyIcon(h);
+                break;
+            }
         }
         return FALSE;
     };
 
     DialogBoxIndirectParamW(m_hInst,
-                            reinterpret_cast<DLGTEMPLATE*>(buf),
+                            reinterpret_cast<DLGTEMPLATE*>(buf.data()),
                             hParent, dlgProc, 0);
 }
 
@@ -618,7 +635,7 @@ void Application::RequestDeleteNote(uint64_t id) {
     DeleteNote(id);
 }
 
-void Application::DeleteNote(uint64_t id) {
+void Application::RemoveNote(uint64_t id) {
     // Destroy window
     auto it = m_noteWindows.find(id);
     if (it != m_noteWindows.end()) {
@@ -631,6 +648,9 @@ void Application::DeleteNote(uint64_t id) {
         [id](const std::unique_ptr<NoteData>& n) { return n->id == id; }), m_notes.end());
 
     m_dirty = true;
+}
+
+void Application::FinalizeDeletions() {
     SaveAll();
     RefreshNoteList();
 
@@ -646,6 +666,11 @@ void Application::DeleteNote(uint64_t id) {
             }
         }
     }
+}
+
+void Application::DeleteNote(uint64_t id) {
+    RemoveNote(id);
+    FinalizeDeletions();
 }
 
 void Application::DeleteSelectedNotes() {
@@ -671,8 +696,9 @@ void Application::DeleteSelectedNotes() {
     }
 
     for (uint64_t id : selected) {
-        DeleteNote(id);
+        RemoveNote(id);
     }
+    FinalizeDeletions();
 }
 
 void Application::MarkDirty() {
@@ -910,10 +936,15 @@ static bool IsRectOnAnyMonitor(int x, int y, int w, int h) {
 }
 
 // Build a "(N)" buffer for printf-style success messages.
+// Safe single-integer placeholder substitution. NEVER passes the (localized,
+// translator-editable) .lng string to the CRT format engine — a wrong specifier
+// there would crash or overflow a fixed buffer.
 static std::wstring FormatCount(const std::wstring& fmt, int count) {
-    wchar_t buf[256];
-    swprintf_s(buf, fmt.c_str(), count);
-    return buf;
+    size_t pos = fmt.find(L"%d");
+    if (pos == std::wstring::npos) return fmt;
+    std::wstring result = fmt;
+    result.replace(pos, 2, std::to_wstring(count));
+    return result;
 }
 
 // Convert "Filter Label|*.ext|...||" with '|' as separators into a buffer with
@@ -931,10 +962,11 @@ static std::wstring BuildOfnFilter(const std::wstring& src) {
 
 void Application::ExportNotesByIds(HWND owner, const std::vector<uint64_t>& ids) {
     // Resolve IDs to NoteData* in their natural order from m_notes
+    std::unordered_set<uint64_t> idSet(ids.begin(), ids.end());
     std::vector<const NoteData*> selected;
     selected.reserve(ids.size());
     for (const auto& note : m_notes) {
-        if (std::find(ids.begin(), ids.end(), note->id) != ids.end()) {
+        if (idSet.count(note->id)) {
             selected.push_back(note.get());
         }
     }
@@ -1174,10 +1206,11 @@ void Application::PrintNoteByIds(HWND owner, const std::vector<uint64_t>& ids) {
     if (ids.empty()) return;
 
     // Resolve IDs to NoteData* in the natural order of m_notes
+    std::unordered_set<uint64_t> idSet(ids.begin(), ids.end());
     std::vector<const NoteData*> notes;
     notes.reserve(ids.size());
     for (const auto& n : m_notes) {
-        if (std::find(ids.begin(), ids.end(), n->id) != ids.end()) {
+        if (idSet.count(n->id)) {
             notes.push_back(n.get());
         }
     }
@@ -1340,15 +1373,14 @@ void Application::PrintNoteByIds(HWND owner, const std::vector<uint64_t>& ids) {
             }
 
             // Footer: page number, right-aligned
-            wchar_t pageLabel[64];
-            swprintf_s(pageLabel, pageFmt.c_str(), pageNumber);
-            int labelLen = static_cast<int>(wcslen(pageLabel));
+            std::wstring pageLabel = FormatCount(pageFmt, pageNumber);
+            int labelLen = static_cast<int>(pageLabel.size());
             SelectObject(hdc, hMetaFont);
             SetTextColor(hdc, RGB(80, 80, 80));
             SIZE pSz = {};
-            GetTextExtentPoint32W(hdc, pageLabel, labelLen, &pSz);
+            GetTextExtentPoint32W(hdc, pageLabel.c_str(), labelLen, &pSz);
             TextOutW(hdc, printable.right - pSz.cx,
-                     printable.bottom - metaH, pageLabel, labelLen);
+                     printable.bottom - metaH, pageLabel.c_str(), labelLen);
 
             if (EndPage(hdc) <= 0) { ok = false; break; }
             firstPage = false;
@@ -1530,8 +1562,8 @@ void Application::ApplySettings() {
     // Refresh note list to apply date format, zebra striping etc.
     RefreshNoteList();
 
-    // Register global hotkeys
-    RegisterGlobalHotkeys();
+    // Register global hotkeys (reuse the data already loaded above)
+    RegisterGlobalHotkeys(data);
 
     // Apply language if changed
     if (data.language != Localization::Get().GetCurrentLanguage()) {
@@ -1552,23 +1584,38 @@ static UINT HotkeyModsToRegisterMods(BYTE mods) {
     return result;
 }
 
-void Application::RegisterGlobalHotkeys() {
+void Application::RegisterGlobalHotkeys(const SettingsData& data) {
     UnregisterGlobalHotkeys();
 
-    auto data = SettingsDialog::LoadFromStorage();
+    bool anyFailed = false;
 
     // Register global new note hotkey
     WORD hkNew = data.shortcuts[SC_GLOBAL_NEWNOTE];
     if (hkNew != 0) {
-        RegisterHotKey(m_hAppWnd, IDH_GLOBAL_NEWNOTE,
-                       HotkeyModsToRegisterMods(HIBYTE(hkNew)), LOBYTE(hkNew));
+        if (!RegisterHotKey(m_hAppWnd, IDH_GLOBAL_NEWNOTE,
+                            HotkeyModsToRegisterMods(HIBYTE(hkNew)), LOBYTE(hkNew)))
+            anyFailed = true;
     }
 
     // Register global note list hotkey
     WORD hkList = data.shortcuts[SC_GLOBAL_NOTELIST];
     if (hkList != 0) {
-        RegisterHotKey(m_hAppWnd, IDH_GLOBAL_NOTELIST,
-                       HotkeyModsToRegisterMods(HIBYTE(hkList)), LOBYTE(hkList));
+        if (!RegisterHotKey(m_hAppWnd, IDH_GLOBAL_NOTELIST,
+                            HotkeyModsToRegisterMods(HIBYTE(hkList)), LOBYTE(hkList)))
+            anyFailed = true;
+    }
+
+    // A configured combo already owned by another process fails silently;
+    // surface it once via a non-blocking tray balloon (a MessageBox would
+    // block at startup). Restore uFlags so later NIM_MODIFY calls don't replay.
+    if (anyFailed && m_nid.hWnd) {
+        UINT savedFlags = m_nid.uFlags;
+        m_nid.uFlags = NIF_INFO;
+        m_nid.dwInfoFlags = NIIF_WARNING;
+        wcscpy_s(m_nid.szInfoTitle, L"UltraNote");
+        wcsncpy_s(m_nid.szInfo, Ls(L"hotkey.register_failed").c_str(), _TRUNCATE);
+        Shell_NotifyIconW(NIM_MODIFY, &m_nid);
+        m_nid.uFlags = savedFlags;
     }
 }
 
