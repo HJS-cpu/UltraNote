@@ -1,18 +1,29 @@
-## UltraNote v1.7.0 — Portable Sticky Notes for Windows
+## UltraNote v1.8.0 — Portable Sticky Notes for Windows
 
 A modern recreation of ATnotes (2005) built with pure Win32 API and C++17. Lightweight, portable, and dependency-free.
 
-### What's New in v1.7.0
+### What's New in v1.8.0
 
-**Run at Windows startup:**
-- New "Startup" group in the General settings tab — toggle whether UltraNote should launch automatically when you sign in to Windows
-- Stored as a single `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\UltraNote` value; nothing else touches the registry
-- Self-healing: if the EXE is moved or renamed while autostart is on, the entry is corrected on the next launch
+A stability, correctness, and hardening release — the result of a full code audit.
 
-**Live preview for the initial-text template:**
-- The Misc tab now shows a read-only preview right below the initial-text box
-- As you type or click "Insert…", strftime variables (`%x`, `%X`, `%#c`, …) are resolved in real time against the current Windows locale
-- Robust against partial/invalid format strings — typing `%` or `%q` no longer crashes the dialog
+**Alarms fixed:**
+- Recurring alarms (Daily, Every-N-Days, Weekly, Monthly, Quarterly, Yearly) now actually fire — previously only one-shot alarms worked
+- Stacked alarm popups no longer overlap when an earlier popup is dismissed
+
+**Note-list fixes:**
+- "Always on Top" via shortcut now toggles **all** selected notes, not just the first
+- Hover preview keeps tracking the right note after re-sorting or refreshing the list
+
+**Robustness & security hardening:**
+- Imported `.unote` files are validated (format/version check, clamped geometry/font sizes, capped attachments) and malformed JSON can no longer crash or misbehave
+- Localized strings can no longer crash the About dialog, export/import messages, or the print footer
+- UTF-8 language names display correctly in the language picker
+
+**Performance:**
+- Settings are cached instead of re-read from disk on every keystroke, list refresh, and preview tick
+- Faster note search and less GDI churn while scrolling the list and editing notes
+
+**Leaks closed:** settings dialog and About dialog no longer leak GDI/icon handles on repeated open/close.
 
 ### Download
 

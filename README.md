@@ -109,6 +109,14 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 
 ## Changelog
 
+### v1.8.0 (2026-06-08)
+- **Recurring alarms fixed:** Daily/Every-N-Days/Weekly/Monthly/Quarterly/Yearly alarms now fire — the scheduler's "next occurrence" contract was strictly in the future while the trigger only fired on past-or-now, so only one-shot alarms ever went off; a per-note minute throttle prevents double-fire and re-pop after dismiss
+- **Multi-select Always-on-Top:** the shortcut now toggles every selected note (the list re-populated mid-loop, so only the first toggled); stacked alarm popups reuse freed slots instead of overlapping
+- **Untrusted-input hardening:** `.unote` import validates format/version and clamps geometry, font sizes and attachment counts; the hand-written JSON parser checks `\u`/hex escapes and short reads; localized strings are no longer passed as `printf` format strings or copied into fixed stack buffers (About dialog, export/import/print labels, font face)
+- **Resource leaks closed:** settings dialog (bold font + two icons) and About dialog (title icon) free their GDI/USER handles on close and on language switch
+- **Performance:** process-wide settings cache (invalidated on save) removes redundant `settings.json` reads on every keystroke / list refresh / 100 ms preview tick; note search uses `StrStrIW` instead of copying+lowercasing every note; ListView custom-draw caches its symbol font and attachment icon; batch delete writes to disk once instead of once per note
+- **Smaller fixes:** AltGr no longer triggers Ctrl+Alt shortcuts while typing; `%p` in the initial-text template expands to empty in 24-hour locales; UTF-8 language display names no longer mojibake; long EXE paths fail autostart cleanly instead of writing a truncated Run-key value
+
 ### v1.7.0 (2026-05-11)
 - **Run at Windows startup:** new toggle in the General settings tab; writes a single `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\UltraNote` value (the only registry use in the project) and self-heals the path on the next launch if the EXE was moved
 - **Live preview for the initial-text template:** the Misc tab shows the resolved text right below the editor — strftime variables (`%x`, `%X`, `%#c`, …) are expanded in real time against the current Windows locale
