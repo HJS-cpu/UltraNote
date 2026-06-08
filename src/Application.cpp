@@ -1635,6 +1635,12 @@ void Application::CheckDueAlarms() {
         if (!nextFire.has_value()) continue;
 
         if (AlarmScheduler::CompareSysTime(*nextFire, now) <= 0) {
+            // Throttle: don't re-fire the same occurrence-minute (the 30s timer
+            // can tick twice in one minute, and a quick dismiss would re-pop).
+            int64_t fireMin = AlarmScheduler::SysTimeToNaiveSec(*nextFire) / 60;
+            auto it = m_lastFiredMinute.find(note->id);
+            if (it != m_lastFiredMinute.end() && it->second == fireMin) continue;
+            m_lastFiredMinute[note->id] = fireMin;
             TriggerAlarm(*note);
         }
     }
@@ -1651,7 +1657,20 @@ void Application::TriggerAlarm(NoteData& note) {
     }
     std::wstring preview = FirstLinesOfText(note.text, 3, 200);
 
-    int stackIndex = static_cast<int>(m_alarmPopups.size());
+    // Lowest free stack slot (NOT map size): a dismissed mid-stack popup frees
+    // its slot, and size() would collide with a still-open higher popup.
+    int stackIndex = 0;
+    {
+        std::vector<bool> used;
+        for (auto& [id, p] : m_alarmPopups) {
+            if (!p) continue;
+            int idx = p->GetStackIndex();
+            if (idx < 0) continue;
+            if (idx >= static_cast<int>(used.size())) used.resize(idx + 1, false);
+            used[idx] = true;
+        }
+        while (stackIndex < static_cast<int>(used.size()) && used[stackIndex]) ++stackIndex;
+    }
     auto popup = new AlarmPopupWindow(m_hInst, note.id, title, preview,
                                       a.popup && a.sound, a.soundFile,
                                       a.snoozeMinutes, stackIndex);

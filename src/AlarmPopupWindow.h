@@ -25,6 +25,7 @@ public:
     bool Create();
     HWND GetHwnd() const { return m_hwnd; }
     uint64_t GetNoteId() const { return m_noteId; }
+    int GetStackIndex() const { return m_stackIndex; }
 
 private:
     static bool EnsureClassRegistered(HINSTANCE hInst);

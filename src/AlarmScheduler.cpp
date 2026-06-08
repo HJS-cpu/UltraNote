@@ -194,6 +194,13 @@ std::optional<SYSTEMTIME> AlarmScheduler::ComputeNextFireTime(const AlarmConfig&
         // Snooze expired — fall through and compute normal next fire.
     }
 
+    // Fire contract: return the earliest valid occurrence >= the current MINUTE
+    // (now with seconds zeroed). Candidates already carry wSecond=0, so an
+    // occurrence in the current minute is returned rather than skipped, letting
+    // CheckDueAlarms (which fires on nextFire <= now) actually trigger it.
+    SYSTEMTIME nowFloor = now;
+    nowFloor.wSecond = 0;
+
     SYSTEMTIME candidate = {};
 
     switch (alarm.kind) {
@@ -204,11 +211,11 @@ std::optional<SYSTEMTIME> AlarmScheduler::ComputeNextFireTime(const AlarmConfig&
     }
 
     case AlarmKind::Daily: {
-        candidate = (CompareSysTime(alarm.startTime, now) > 0) ? alarm.startTime : now;
+        candidate = (CompareSysTime(alarm.startTime, nowFloor) > 0) ? alarm.startTime : nowFloor;
         candidate.wHour   = alarm.startTime.wHour;
         candidate.wMinute = alarm.startTime.wMinute;
         candidate.wSecond = 0;
-        while (CompareSysTime(candidate, now) <= 0 ||
+        while (CompareSysTime(candidate, nowFloor) < 0 ||
                CompareSysTime(candidate, alarm.startTime) < 0) {
             candidate = AddDays(candidate, 1);
         }
@@ -217,23 +224,29 @@ std::optional<SYSTEMTIME> AlarmScheduler::ComputeNextFireTime(const AlarmConfig&
 
     case AlarmKind::EveryNDays: {
         int interval = (std::max)(1, alarm.intervalDays);
-        candidate = alarm.startTime;
-        // Guard: prevent infinite loop on degenerate input
-        int safety = 100000;
-        while (CompareSysTime(candidate, now) <= 0 && safety-- > 0) {
-            candidate = AddDays(candidate, interval);
+        // Direct jump instead of stepping one interval at a time: a far-past
+        // startTime would otherwise loop hundreds/thousands of times per tick.
+        SYSTEMTIME anchor = alarm.startTime;
+        anchor.wSecond = 0;
+        int64_t gapSec = SysTimeToNaiveSec(nowFloor) - SysTimeToNaiveSec(anchor);
+        if (gapSec <= 0) {
+            candidate = anchor;  // start is now or in the future
+        } else {
+            int64_t intervalSec = static_cast<int64_t>(interval) * 86400;
+            int64_t steps = (gapSec + intervalSec - 1) / intervalSec;  // ceil
+            candidate = AddDays(anchor, static_cast<int>(steps * interval));
         }
         break;
     }
 
     case AlarmKind::Weekly: {
         if (alarm.weekdayMask == 0) return std::nullopt;
-        candidate = (CompareSysTime(alarm.startTime, now) > 0) ? alarm.startTime : now;
+        candidate = (CompareSysTime(alarm.startTime, nowFloor) > 0) ? alarm.startTime : nowFloor;
         candidate.wHour   = alarm.startTime.wHour;
         candidate.wMinute = alarm.startTime.wMinute;
         candidate.wSecond = 0;
-        // If today's time has already passed, start search from tomorrow
-        if (CompareSysTime(candidate, now) <= 0) {
+        // If today's time is before the current minute, start search from tomorrow
+        if (CompareSysTime(candidate, nowFloor) < 0) {
             candidate = AddDays(candidate, 1);
         }
         for (int i = 0; i < 7; ++i) {
@@ -257,7 +270,7 @@ std::optional<SYSTEMTIME> AlarmScheduler::ComputeNextFireTime(const AlarmConfig&
         for (int i = 0; i < 24; ++i) {
             int effectiveDay = (std::min)(day, DaysInMonth(y, m));
             candidate = MakeDate(y, m, effectiveDay, alarm.startTime);
-            if (CompareSysTime(candidate, now) > 0 &&
+            if (CompareSysTime(candidate, nowFloor) >= 0 &&
                 CompareSysTime(candidate, alarm.startTime) >= 0) {
                 break;
             }
@@ -277,7 +290,7 @@ std::optional<SYSTEMTIME> AlarmScheduler::ComputeNextFireTime(const AlarmConfig&
         for (int i = 0; i < 24; ++i) {
             int day = NthWeekdayDay(y, m, nth, wd);
             candidate = MakeDate(y, m, day, alarm.startTime);
-            if (CompareSysTime(candidate, now) > 0 &&
+            if (CompareSysTime(candidate, nowFloor) >= 0 &&
                 CompareSysTime(candidate, alarm.startTime) >= 0) {
                 break;
             }
@@ -309,7 +322,7 @@ std::optional<SYSTEMTIME> AlarmScheduler::ComputeNextFireTime(const AlarmConfig&
         for (int i = 0; i < 8; ++i) {
             SYSTEMTIME qFirst = MakeDate(y, qStart, 1, alarm.startTime);
             candidate = AddDays(qFirst, qd - 1);
-            if (CompareSysTime(candidate, now) > 0 &&
+            if (CompareSysTime(candidate, nowFloor) >= 0 &&
                 CompareSysTime(candidate, alarm.startTime) >= 0) {
                 break;
             }
@@ -329,7 +342,7 @@ std::optional<SYSTEMTIME> AlarmScheduler::ComputeNextFireTime(const AlarmConfig&
         for (int i = 0; i < 4; ++i) {
             int effectiveDay = (std::min)(d, DaysInMonth(y, mo));
             candidate = MakeDate(y, mo, effectiveDay, alarm.startTime);
-            if (CompareSysTime(candidate, now) > 0 &&
+            if (CompareSysTime(candidate, nowFloor) >= 0 &&
                 CompareSysTime(candidate, alarm.startTime) >= 0) {
                 break;
             }

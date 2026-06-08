@@ -149,6 +149,11 @@ private:
     // Active alarm popups (keyed by note id, one per note)
     std::unordered_map<uint64_t, AlarmPopupWindow*> m_alarmPopups;
 
+    // Re-fire throttle: note id -> last fired occurrence-minute (naive secs/60).
+    // Stops the 30s timer double-firing within a minute and re-popping after a
+    // quick dismiss, without mutating the (pure) scheduler. In-memory only.
+    std::unordered_map<uint64_t, int64_t> m_lastFiredMinute;
+
     // Hover-balloon for the systray icon (custom-drawn tooltip replacement)
     std::unique_ptr<TrayBubbleWindow> m_trayBubble;
 
