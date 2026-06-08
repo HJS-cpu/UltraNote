@@ -3,7 +3,24 @@
 #include <fstream>
 #include <sstream>
 #include <cwchar>
+#include <cwctype>
 #include <ctime>
+
+// ============================================================================
+// Range-clamp helpers for untrusted (imported / hand-edited) numeric input.
+// Plain ternary keeps to this file's no-NOMINMAX / no-<algorithm> convention.
+// ============================================================================
+
+static int ClampInt(int64_t v, int lo, int hi) {
+    return v < lo ? lo : (v > hi ? hi : static_cast<int>(v));
+}
+
+// Generous upper bound for a note dimension; falls back when GetSystemMetrics
+// returns 0 (e.g. a headless/service process with no display).
+static int MaxNoteDim(int sysMetric, int fallback) {
+    int m = GetSystemMetrics(sysMetric);
+    return m > 0 ? m : fallback;
+}
 
 // ============================================================================
 // File path
@@ -77,6 +94,10 @@ std::wstring Storage::EscapeJsonString(const std::wstring& s) {
 
 std::wstring Storage::SerializeNote(const NoteData& note) {
     std::wstring s;
+    size_t est = 800 + note.text.size() + note.title.size() + note.folder.size();
+    for (const auto& a : note.attachments) est += a.size() + 8;
+    if (note.alarm.has_value()) est += 400;
+    s.reserve(est);
     s += L"    {\n";
     s += L"      \"id\": " + std::to_wstring(note.id) + L",\n";
     s += L"      \"text\": \"" + EscapeJsonString(note.text) + L"\",\n";
@@ -248,8 +269,10 @@ bool Storage::ImportNotes(const std::wstring& path,
     if (fileSize <= 0) { fclose(fp); return false; }
 
     std::string utf8(static_cast<size_t>(fileSize), '\0');
-    fread(&utf8[0], 1, static_cast<size_t>(fileSize), fp);
+    size_t got = fread(&utf8[0], 1, static_cast<size_t>(fileSize), fp);
     fclose(fp);
+    if (got == 0) return false;
+    if (got != static_cast<size_t>(fileSize)) utf8.resize(got);
 
     // Strip UTF-8 BOM if present
     size_t bomOffset = 0;
@@ -273,6 +296,9 @@ bool Storage::ImportNotes(const std::wstring& path,
     if (!Expect(p, L'{')) return false;
 
     bool foundNotes = false;
+    std::wstring fmt;
+    int64_t ver = 0;
+    bool sawFmt = false, sawVer = false;
     while (*p && *p != L'}') {
         SkipWhitespace(p);
         if (*p == L'}') break;
@@ -294,14 +320,26 @@ bool Storage::ImportNotes(const std::wstring& path,
             }
             if (!Expect(p, L']')) return false;
             foundNotes = true;
+        } else if (key == L"format") {
+            if (!ParseString(p, fmt)) return false;
+            sawFmt = true;
+        } else if (key == L"version") {
+            if (!ParseInt(p, ver)) return false;
+            sawVer = true;
         } else {
-            // format / version / exportedAt — and any forward-compat fields
+            // exportedAt and any forward-compat fields
             if (!SkipValue(p)) return false;
         }
 
         SkipWhitespace(p);
         if (*p == L',') ++p;
     }
+
+    // Reject an explicit identity/version mismatch; be lenient when absent
+    // (older or hand-made files that only ever round-tripped via SkipValue).
+    const int kMaxSupportedExportVersion = 1;
+    if (sawFmt && fmt != L"ultranote-export") return false;
+    if (sawVer && ver > kMaxSupportedExportVersion) return false;
 
     return foundNotes;
 }
@@ -312,6 +350,8 @@ bool Storage::ImportNotes(const std::wstring& path,
 
 COLORREF Storage::HexToColor(const std::wstring& hex) {
     if (hex.size() < 7 || hex[0] != L'#') return RGB(0, 0, 0);
+    for (int k = 1; k <= 6; ++k)
+        if (!iswxdigit(hex[k])) return RGB(0, 0, 0);
     unsigned r = wcstoul(hex.substr(1, 2).c_str(), nullptr, 16);
     unsigned g = wcstoul(hex.substr(3, 2).c_str(), nullptr, 16);
     unsigned b = wcstoul(hex.substr(5, 2).c_str(), nullptr, 16);
@@ -330,13 +370,19 @@ std::wstring Storage::UnescapeJsonString(const std::wstring& s) {
                 case L'n':  out += L'\n'; break;
                 case L'r':  out += L'\r'; break;
                 case L't':  out += L'\t'; break;
-                case L'u':
-                    if (i + 4 < s.size()) {
+                case L'u': {
+                    bool ok = (i + 4 < s.size())
+                              && iswxdigit(s[i + 1]) && iswxdigit(s[i + 2])
+                              && iswxdigit(s[i + 3]) && iswxdigit(s[i + 4]);
+                    if (ok) {
                         unsigned val = wcstoul(s.substr(i + 1, 4).c_str(), nullptr, 16);
                         out += static_cast<wchar_t>(val);
                         i += 4;
+                    } else {
+                        out += L'u';  // malformed escape: emit literal, don't consume
                     }
                     break;
+                }
                 default: out += s[i]; break;
             }
         } else {
@@ -415,15 +461,12 @@ bool Storage::SkipValue(const wchar_t*& p) {
             if (*p == L'{') ++depth;
             else if (*p == L'}') --depth;
             else if (*p == L'"') {
-                std::wstring dummy;
-                --p; // back up to re-parse the quote
-                // Actually, just skip the string manually
                 ++p; // skip opening quote
                 while (*p && *p != L'"') {
-                    if (*p == L'\\') ++p;
-                    if (*p) ++p;
+                    if (*p == L'\\' && *(p + 1)) ++p; // skip escaped char
+                    ++p;
                 }
-                if (*p == L'"') ++p;
+                if (*p == L'"') ++p; // skip closing quote
                 continue;
             }
             if (depth > 0) ++p;
@@ -478,7 +521,7 @@ bool Storage::ParseLayoutObject(const wchar_t*& p, NoteLayout& layout) {
         } else if (key == L"fontSize") {
             int64_t val;
             if (!ParseInt(p, val)) return false;
-            layout.fontSizePts = static_cast<int>(val);
+            layout.fontSizePts = ClampInt(val, 6, 72);
         } else if (key == L"bold") {
             if (!ParseBool(p, layout.fontBold)) return false;
         } else if (key == L"italic") {
@@ -525,10 +568,12 @@ bool Storage::ParseNoteObject(const wchar_t*& p, NoteData& note) {
             note.y = static_cast<int>(val);
         } else if (key == L"width") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            note.width = static_cast<int>(val);
+            // Clamp to [MIN_WIDTH .. virtual screen] (literals mirror NoteWindow;
+            // Storage must not include NoteWindow.h — layering).
+            note.width = ClampInt(val, 80, MaxNoteDim(SM_CXVIRTUALSCREEN, 10000));
         } else if (key == L"height") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            note.height = static_cast<int>(val);
+            note.height = ClampInt(val, 40, MaxNoteDim(SM_CYVIRTUALSCREEN, 10000));
         } else if (key == L"minimized") {
             if (!ParseBool(p, note.isMinimized)) return false;
         } else if (key == L"hidden") {
@@ -543,6 +588,8 @@ bool Storage::ParseNoteObject(const wchar_t*& p, NoteData& note) {
             if (!ParseBool(p, note.showAttachments)) return false;
         } else if (key == L"attachments") {
             if (!ParseStringArray(p, note.attachments)) return false;
+            if (note.attachments.size() > static_cast<size_t>(MAX_ATTACHMENTS))
+                note.attachments.resize(MAX_ATTACHMENTS);
         } else if (key == L"alarm") {
             AlarmConfig alarm;
             if (!ParseAlarmObject(p, alarm)) return false;
@@ -577,28 +624,28 @@ bool Storage::ParseAlarmObject(const wchar_t*& p, AlarmConfig& alarm) {
             StringToSysTime(val, alarm.startTime);
         } else if (key == L"intervalDays") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.intervalDays = static_cast<int>(val);
+            alarm.intervalDays = ClampInt(val, 1, 365);
         } else if (key == L"weekdayMask") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.weekdayMask = static_cast<uint8_t>(val);
+            alarm.weekdayMask = static_cast<uint8_t>(ClampInt(val, 0, 0x7F));
         } else if (key == L"monthDay") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.monthDay = static_cast<int>(val);
+            alarm.monthDay = ClampInt(val, 1, 31);
         } else if (key == L"nthWeek") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.nthWeek = static_cast<int>(val);
+            alarm.nthWeek = ClampInt(val, 1, 5);
         } else if (key == L"nthWeekday") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.nthWeekday = static_cast<int>(val);
+            alarm.nthWeekday = ClampInt(val, 0, 6);
         } else if (key == L"quarterDay") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.quarterDay = static_cast<int>(val);
+            alarm.quarterDay = ClampInt(val, 1, 90);
         } else if (key == L"endKind") {
             int64_t val; if (!ParseInt(p, val)) return false;
             alarm.endKind = static_cast<AlarmEndKind>(val);
         } else if (key == L"endCount") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.endCount = static_cast<int>(val);
+            alarm.endCount = ClampInt(val, 1, 100000);
         } else if (key == L"endDate") {
             std::wstring val; if (!ParseString(p, val)) return false;
             StringToSysTime(val, alarm.endDate);
@@ -610,10 +657,10 @@ bool Storage::ParseAlarmObject(const wchar_t*& p, AlarmConfig& alarm) {
             if (!ParseString(p, alarm.soundFile)) return false;
         } else if (key == L"snoozeMinutes") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.snoozeMinutes = static_cast<int>(val);
+            alarm.snoozeMinutes = ClampInt(val, 1, 100000);
         } else if (key == L"firedCount") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.firedCount = static_cast<int>(val);
+            alarm.firedCount = ClampInt(val, 0, 100000);
         } else if (key == L"snoozeUntil") {
             if (!ParseInt(p, alarm.snoozeUntil)) return false;
         } else if (key == L"paused") {
@@ -710,8 +757,9 @@ std::vector<std::unique_ptr<NoteData>> Storage::LoadNotes(uint64_t& outNextId,
     if (fileSize <= 0) { fclose(fp); return notes; }
 
     std::string utf8(static_cast<size_t>(fileSize), '\0');
-    fread(&utf8[0], 1, static_cast<size_t>(fileSize), fp);
+    size_t got = fread(&utf8[0], 1, static_cast<size_t>(fileSize), fp);
     fclose(fp);
+    if (got != static_cast<size_t>(fileSize)) utf8.resize(got);
 
     // Convert UTF-8 to wstring
     int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(),
@@ -744,8 +792,9 @@ static std::wstring ReadSettingsFile() {
     if (fileSize <= 0) { fclose(fp); return {}; }
 
     std::string utf8(static_cast<size_t>(fileSize), '\0');
-    fread(&utf8[0], 1, static_cast<size_t>(fileSize), fp);
+    size_t got = fread(&utf8[0], 1, static_cast<size_t>(fileSize), fp);
     fclose(fp);
+    if (got != static_cast<size_t>(fileSize)) utf8.resize(got);
 
     int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(),
                                        static_cast<int>(utf8.size()), nullptr, 0);
@@ -793,20 +842,40 @@ static void ParseSettingsJson(const std::wstring& json,
     }
 }
 
-std::map<std::wstring, int> Storage::LoadSettings() {
-    std::map<std::wstring, int> settings;
+// ----------------------------------------------------------------------------
+// Process-wide settings cache.
+// Every settings read funnels through ReadSettingsFile + ParseSettingsJson; hot
+// paths (per-keystroke/per-tick) used to re-read + re-parse settings.json each
+// time. Cache the two parsed maps behind a dirty flag, filled once via a single
+// dual-out ParseSettingsJson pass, and invalidate them centrally in the only
+// writer (WriteSettingsFile). Single UI thread -> no locking needed.
+// External-edit tradeoff: the running app is the authoritative writer and
+// overwrites settings.json wholesale on every save, so an external edit made
+// while UltraNote runs is already lost on the next save (cache or not). The
+// cache only ever serves data the app itself last wrote or read at startup.
+// ----------------------------------------------------------------------------
+static bool s_settingsCacheValid = false;
+static std::map<std::wstring, int> s_settingsIntCache;
+static std::map<std::wstring, std::wstring> s_settingsStrCache;
+
+static void EnsureSettingsCache() {
+    if (s_settingsCacheValid) return;
+    s_settingsIntCache.clear();
+    s_settingsStrCache.clear();
     std::wstring json = ReadSettingsFile();
     if (!json.empty())
-        ParseSettingsJson(json, &settings, nullptr);
-    return settings;
+        ParseSettingsJson(json, &s_settingsIntCache, &s_settingsStrCache);
+    s_settingsCacheValid = true;  // valid even if the file is missing/empty
+}
+
+std::map<std::wstring, int> Storage::LoadSettings() {
+    EnsureSettingsCache();
+    return s_settingsIntCache;
 }
 
 std::map<std::wstring, std::wstring> Storage::LoadSettingsStr() {
-    std::map<std::wstring, std::wstring> settings;
-    std::wstring json = ReadSettingsFile();
-    if (!json.empty())
-        ParseSettingsJson(json, nullptr, &settings);
-    return settings;
+    EnsureSettingsCache();
+    return s_settingsStrCache;
 }
 
 static bool WriteSettingsFile(const std::wstring& json) {
@@ -835,6 +904,7 @@ static bool WriteSettingsFile(const std::wstring& json) {
         DeleteFileW(tmpPath.c_str());
         return false;
     }
+    s_settingsCacheValid = false;  // settings.json changed: drop the cache
     return true;
 }
 
