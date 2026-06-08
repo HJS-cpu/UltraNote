@@ -11,6 +11,7 @@
 #include "HeaderDragOverlay.h"
 #include <windowsx.h>
 #include <uxtheme.h>
+#include <shlwapi.h>
 #include <ctime>
 #include <algorithm>
 #include <vector>
@@ -48,6 +49,8 @@ NoteListWindow::~NoteListWindow() {
     if (m_hAllNotesIcon) { DestroyIcon(m_hAllNotesIcon); m_hAllNotesIcon = nullptr; }
     if (m_hSearchIcon) { DestroyIcon(m_hSearchIcon); m_hSearchIcon = nullptr; }
     if (m_hSearchFont) { DeleteObject(m_hSearchFont); m_hSearchFont = nullptr; }
+    if (m_hSymbolFont) { DeleteObject(m_hSymbolFont); m_hSymbolFont = nullptr; }
+    if (m_hAttachIcon) { DestroyIcon(m_hAttachIcon); m_hAttachIcon = nullptr; }
     if (m_hwnd) {
         SetWindowLongPtrW(m_hwnd, 0, 0);
         DestroyWindow(m_hwnd);
@@ -466,22 +469,22 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                 return 0;
                             }
                             if (MatchesShortcut(settings.shortcuts[SC_ALWAYS_ON_TOP], kd->wVKey)) {
-                                // Toggle always-on-top for all selected notes
+                                // Collect IDs first: ToggleNoteAlwaysOnTop ->
+                                // Refresh repopulates the list and clears the
+                                // selection, so walking it live would toggle only
+                                // the first note. Refresh also rewrites COL_ONTOP,
+                                // so no manual SetItemText is needed.
+                                std::vector<uint64_t> ids;
                                 int idx = -1;
                                 while ((idx = ListView_GetNextItem(m_hListView, idx, LVNI_SELECTED)) != -1) {
                                     LVITEMW item = {};
                                     item.mask = LVIF_PARAM;
                                     item.iItem = idx;
-                                    if (ListView_GetItem(m_hListView, &item)) {
-                                        uint64_t noteId = static_cast<uint64_t>(item.lParam);
-                                        ToggleNoteAlwaysOnTop(noteId);
-                                        NoteData* note = Application::Get().FindNoteData(noteId);
-                                        if (note) {
-                                            ListView_SetItemText(m_hListView, idx, COL_ONTOP,
-                                                const_cast<LPWSTR>(note->layout.alwaysOnTop ? L"\u2611" : L"\u2610"));
-                                        }
-                                    }
+                                    if (ListView_GetItem(m_hListView, &item))
+                                        ids.push_back(static_cast<uint64_t>(item.lParam));
                                 }
+                                for (uint64_t noteId : ids)
+                                    ToggleNoteAlwaysOnTop(noteId);
                                 return 0;
                             }
                             if (MatchesShortcut(settings.shortcuts[SC_HIDE], kd->wVKey)) {
@@ -578,13 +581,15 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                     wchar_t buf[4] = {};
                                     ListView_GetItemText(m_hListView, itemIdx, sub, buf, 4);
 
-                                    HFONT hLargeFont = CreateFontW(
-                                        20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                                        CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-                                        DEFAULT_PITCH, L"Segoe UI Symbol");
+                                    if (!m_hSymbolFont) {
+                                        m_hSymbolFont = CreateFontW(
+                                            20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                            CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                                            DEFAULT_PITCH, L"Segoe UI Symbol");
+                                    }
                                     HFONT hOldFont = static_cast<HFONT>(
-                                        SelectObject(cd->nmcd.hdc, hLargeFont));
+                                        SelectObject(cd->nmcd.hdc, m_hSymbolFont));
 
                                     SetBkColor(cd->nmcd.hdc, bgColor);
                                     SetTextColor(cd->nmcd.hdc, txColor);
@@ -595,7 +600,6 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                               DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
                                     SelectObject(cd->nmcd.hdc, hOldFont);
-                                    DeleteObject(hLargeFont);
                                     return CDRF_SKIPDEFAULT;
                                 }
                                 if (sub == COL_ATTACH) {
@@ -613,13 +617,14 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                         int iconCy = GetSystemMetrics(SM_CYSMICON);
                                         int iconX = rc.left + (rc.right - rc.left - iconCx) / 2;
                                         int iconY = rc.top + (rc.bottom - rc.top - iconCy) / 2;
-                                        HICON hIcon = static_cast<HICON>(LoadImageW(
-                                            GetModuleHandleW(nullptr), MAKEINTRESOURCE(IDI_ATTACHMENT),
-                                            IMAGE_ICON, iconCx, iconCy, LR_DEFAULTCOLOR));
-                                        if (hIcon) {
-                                            DrawIconEx(cd->nmcd.hdc, iconX, iconY, hIcon,
+                                        if (!m_hAttachIcon) {
+                                            m_hAttachIcon = static_cast<HICON>(LoadImageW(
+                                                GetModuleHandleW(nullptr), MAKEINTRESOURCE(IDI_ATTACHMENT),
+                                                IMAGE_ICON, iconCx, iconCy, LR_DEFAULTCOLOR));
+                                        }
+                                        if (m_hAttachIcon) {
+                                            DrawIconEx(cd->nmcd.hdc, iconX, iconY, m_hAttachIcon,
                                                        iconCx, iconCy, 0, nullptr, DI_NORMAL);
-                                            DestroyIcon(hIcon);
                                         }
                                     }
                                     return CDRF_SKIPDEFAULT;
@@ -874,21 +879,24 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     if (hitIdx < 0) {
                         HidePreviewNote();
                     }
-                } else if (hitIdx >= 0 && hitIdx != m_previewNoteIdx) {
-                    // Still on same row, check if delay elapsed
-                    DWORD elapsed = GetTickCount() - m_previewHoverStart;
-                    DWORD previewDelay = static_cast<DWORD>(SettingsDialog::LoadFromStorage().previewDelay);
-                    if (elapsed >= previewDelay) {
-                        // Get note ID from ListView item
-                        LVITEMW item = {};
-                        item.mask  = LVIF_PARAM;
-                        item.iItem = hitIdx;
-                        ListView_GetItem(m_hListView, &item);
-                        uint64_t noteId = static_cast<uint64_t>(item.lParam);
+                } else if (hitIdx >= 0) {
+                    // Resolve the stable note ID for the hovered row; the row
+                    // index (m_previewNoteIdx) desyncs after any re-sort/Refresh,
+                    // so gate on the note ID instead.
+                    LVITEMW item = {};
+                    item.mask  = LVIF_PARAM;
+                    item.iItem = hitIdx;
+                    ListView_GetItem(m_hListView, &item);
+                    uint64_t noteId = static_cast<uint64_t>(item.lParam);
 
-                        HidePreviewNote();
-                        ShowPreviewNote(noteId);
-                        m_previewNoteIdx = hitIdx;
+                    if (noteId != m_previewNoteId) {
+                        // Same row, not yet previewing this note: wait for the delay.
+                        DWORD elapsed = GetTickCount() - m_previewHoverStart;
+                        if (elapsed >= static_cast<DWORD>(m_previewDelay)) {
+                            HidePreviewNote();
+                            ShowPreviewNote(noteId);
+                            m_previewNoteIdx = hitIdx;  // advisory (reset logic)
+                        }
                     }
                 }
             }
@@ -1274,14 +1282,15 @@ LRESULT CALLBACK NoteListWindow::ListViewSubclassProc(
         };
 
         if (MatchesShortcut(settings.shortcuts[SC_ALWAYS_ON_TOP], vk)) {
-            forEachSelected([&](int idx, uint64_t noteId) {
-                self->ToggleNoteAlwaysOnTop(noteId);
-                NoteData* note = Application::Get().FindNoteData(noteId);
-                if (note) {
-                    ListView_SetItemText(hwnd, idx, COL_ONTOP,
-                        const_cast<LPWSTR>(note->layout.alwaysOnTop ? L"☑" : L"☐"));
-                }
+            // Collect IDs first: ToggleNoteAlwaysOnTop -> Refresh repopulates the
+            // list and clears the selection, so forEachSelected would toggle only
+            // the first note. Refresh also rewrites COL_ONTOP.
+            std::vector<uint64_t> ids;
+            forEachSelected([&](int /*idx*/, uint64_t noteId) {
+                ids.push_back(noteId);
             });
+            for (uint64_t noteId : ids)
+                self->ToggleNoteAlwaysOnTop(noteId);
             return 0;
         }
         if (MatchesShortcut(settings.shortcuts[SC_HIDE], vk)) {
@@ -1596,15 +1605,17 @@ void NoteListWindow::SetupColumns() {
     }
 }
 
-void NoteListWindow::PopulateList() {
+void NoteListWindow::PopulateList(const wchar_t* dateFmt) {
     ListView_DeleteAllItems(m_hListView);
 
-    // Determine date format once (0 = YYYY-MM-DD HH:MM, 1 = DD.MM.YYYY HH:MM)
-    auto intSettings = Storage::LoadSettings();
-    auto itDateFmt = intSettings.find(L"notelist.dateFormat");
-    const wchar_t* dateFmt = L"%Y-%m-%d %H:%M";
-    if (itDateFmt != intSettings.end() && itDateFmt->second == 1) {
-        dateFmt = L"%d.%m.%Y %H:%M";
+    // Date format (0 = YYYY-MM-DD HH:MM, 1 = DD.MM.YYYY HH:MM). Refresh passes it
+    // from the settings it already loaded; standalone callers pass nullptr and we
+    // read it from the now-cached settings store.
+    if (!dateFmt) {
+        auto intSettings = Storage::LoadSettings();
+        auto itDateFmt = intSettings.find(L"notelist.dateFormat");
+        dateFmt = (itDateFmt != intSettings.end() && itDateFmt->second == 1)
+                      ? L"%d.%m.%Y %H:%M" : L"%Y-%m-%d %H:%M";
     }
 
     auto& notes = Application::Get().GetAllNotes();
@@ -1620,20 +1631,11 @@ void NoteListWindow::PopulateList() {
             if (note.folder != m_selectedFolder) continue;
         }
 
-        // Filter by search query (case-insensitive substring match)
+        // Filter by search query (case-insensitive substring in title or text).
+        // StrStrIW avoids copying+lowercasing the whole note text per keystroke.
         if (!m_searchQuery.empty()) {
-            // Convert search query to lowercase for comparison
-            std::wstring queryLower = m_searchQuery;
-            for (auto& c : queryLower) c = towlower(c);
-
-            std::wstring titleLower = note.title;
-            for (auto& c : titleLower) c = towlower(c);
-
-            std::wstring textLower = note.text;
-            for (auto& c : textLower) c = towlower(c);
-
-            if (titleLower.find(queryLower) == std::wstring::npos &&
-                textLower.find(queryLower) == std::wstring::npos) {
+            if (!StrStrIW(note.title.c_str(), m_searchQuery.c_str()) &&
+                !StrStrIW(note.text.c_str(),  m_searchQuery.c_str())) {
                 continue;
             }
         }
@@ -1732,9 +1734,11 @@ void NoteListWindow::Refresh() {
     // Cache display settings to avoid repeated LoadFromStorage calls
     auto settings = SettingsDialog::LoadFromStorage();
     m_zebraStriping = settings.zebraStriping;
+    m_previewDelay = settings.previewDelay;   // keep the timer's delay fresh
 
     PopulateFolderList();
-    PopulateList();
+    // Pass the date format we already loaded so PopulateList doesn't re-read it.
+    PopulateList(settings.dateFormat == 1 ? L"%d.%m.%Y %H:%M" : L"%Y-%m-%d %H:%M");
     ApplyCurrentSort();
 }
 
@@ -1827,6 +1831,11 @@ void NoteListWindow::LoadSettings() {
         m_folderListWidth = itFW->second;
         ResizeControls();
     }
+
+    // Preview hover delay (read once; the 100ms timer reads m_previewDelay
+    // instead of re-parsing settings.json on every tick)
+    auto itPD = settings.find(L"preview.delay");
+    if (itPD != settings.end()) m_previewDelay = itPD->second;
 
     // Preview setting
     auto itPV = settings.find(L"notelist.preview");

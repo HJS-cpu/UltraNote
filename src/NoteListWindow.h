@@ -41,7 +41,7 @@ private:
     void CreateFolderList();
     void CreateListView();
     void SetupColumns();
-    void PopulateList();
+    void PopulateList(const wchar_t* dateFmt = nullptr);
     void PopulateFolderList();
     void ResizeControls();
 
@@ -104,6 +104,8 @@ private:
     HICON      m_hAllNotesIcon  = nullptr;
     HICON      m_hSearchIcon    = nullptr;
     HFONT      m_hSearchFont    = nullptr;
+    HFONT      m_hSymbolFont    = nullptr;   // cached 20px symbol font (custom-draw)
+    HICON      m_hAttachIcon    = nullptr;   // cached attachment icon (custom-draw)
 
     enum class FolderFilter { All, Unfiled, Named };
     FolderFilter m_folderFilter   = FolderFilter::All;
@@ -167,6 +169,7 @@ private:
 
     // Preview state
     bool     m_previewEnabled     = false;
+    int      m_previewDelay       = 400;   // hover delay ms (cached; read per tick)
     int      m_previewNoteIdx     = -1;
     uint64_t m_previewNoteId      = 0;
     bool     m_previewWasHidden   = false;
