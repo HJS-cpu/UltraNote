@@ -135,7 +135,7 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             // Check if click is in attachment bar (works even in edit mode)
             if (m_data->showAttachments && !m_data->attachments.empty()) {
                 int attachIdx = AttachmentHitTest(x, y);
-                if (attachIdx >= 0) return 0; // Consume, dblclick will open
+                if (attachIdx >= 0) return 0; // Consume; single click opens on WM_LBUTTONUP
             }
 
             if (m_inEditMode) break; // Let edit control handle it
@@ -258,6 +258,14 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_LBUTTONDBLCLK: {
             m_pendingUrlClick = -1;  // Cancel pending URL click
+            // Attachment bar: the single click already opened the file on
+            // WM_LBUTTONUP; swallow the dblclick so we neither re-open it nor
+            // drop into edit mode over the attachment.
+            if (m_data->showAttachments && !m_data->attachments.empty()) {
+                int x = GET_X_LPARAM(lParam);
+                int y = GET_Y_LPARAM(lParam);
+                if (AttachmentHitTest(x, y) >= 0) return 0;
+            }
             if (!m_inEditMode) {
                 Application::Get().ClearSelection();
                 EnterEditMode();
@@ -303,7 +311,14 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
 
-            // Configurable shortcuts from settings
+            // Configurable shortcuts from settings. Skip the settings load for
+            // plain navigation/typing keys; VK_DELETE is allowed through because
+            // SC_DELETE defaults to plain Del (no modifier).
+            if (!(GetKeyState(VK_CONTROL) & 0x8000) &&
+                !(GetKeyState(VK_MENU) & 0x8000) &&
+                wParam != VK_DELETE) {
+                break;
+            }
             {
                 auto settings = SettingsDialog::LoadFromStorage();
 
@@ -343,8 +358,13 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             SetBkColor(hdcEdit, m_data->layout.backgroundColor);
             SetTextColor(hdcEdit, m_data->layout.textColor);
 
-            if (m_hEditBrush) DeleteObject(m_hEditBrush);
-            m_hEditBrush = CreateSolidBrush(m_data->layout.backgroundColor);
+            // Reuse the brush across repaints; only recreate when the background
+            // color actually changes (this message fires on every edit repaint).
+            if (!m_hEditBrush || m_editBrushColor != m_data->layout.backgroundColor) {
+                if (m_hEditBrush) DeleteObject(m_hEditBrush);
+                m_editBrushColor = m_data->layout.backgroundColor;
+                m_hEditBrush = CreateSolidBrush(m_editBrushColor);
+            }
             return reinterpret_cast<LRESULT>(m_hEditBrush);
         }
 
@@ -807,6 +827,14 @@ void NoteWindow::EnterEditMode() {
         rc.bottom - 2 * TEXT_PADDING - abHeight,
         m_hwnd, nullptr, m_hInst, nullptr
     );
+
+    if (!m_hEditCtrl) {
+        // EDIT creation failed: roll back so the note stays editable and
+        // Paint() runs PaintText() again (it skips it while m_inEditMode).
+        m_inEditMode = false;
+        InvalidateRect(m_hwnd, nullptr, TRUE);
+        return;
+    }
 
     // Set font using window DC for consistent DPI-aware metrics (must match PaintText)
     HDC hdc = GetDC(m_hwnd);

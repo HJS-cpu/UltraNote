@@ -109,6 +109,7 @@ private:
     NoteData*  m_data          = nullptr;
     HINSTANCE  m_hInst         = nullptr;
     HBRUSH     m_hEditBrush    = nullptr;
+    COLORREF   m_editBrushColor = CLR_INVALID;  // color m_hEditBrush was made for
 
     bool       m_selected      = false;
     bool       m_inEditMode    = false;
