@@ -8,41 +8,6 @@
 #include <cstdarg>
 #include <ctime>
 
-// RAII wrapper for GDI objects (HBRUSH, HFONT, HPEN, etc.)
-class GdiObject {
-public:
-    GdiObject() : m_obj(nullptr) {}
-    explicit GdiObject(HGDIOBJ obj) : m_obj(obj) {}
-    ~GdiObject() { Reset(); }
-
-    GdiObject(const GdiObject&) = delete;
-    GdiObject& operator=(const GdiObject&) = delete;
-
-    GdiObject(GdiObject&& other) noexcept : m_obj(other.m_obj) {
-        other.m_obj = nullptr;
-    }
-    GdiObject& operator=(GdiObject&& other) noexcept {
-        if (this != &other) {
-            Reset();
-            m_obj = other.m_obj;
-            other.m_obj = nullptr;
-        }
-        return *this;
-    }
-
-    void Reset(HGDIOBJ obj = nullptr) {
-        if (m_obj) DeleteObject(m_obj);
-        m_obj = obj;
-    }
-
-    HGDIOBJ Get() const { return m_obj; }
-    operator HGDIOBJ() const { return m_obj; }
-    explicit operator bool() const { return m_obj != nullptr; }
-
-private:
-    HGDIOBJ m_obj;
-};
-
 // RAII scope guard for SelectObject / restore pattern
 class GdiSelect {
 public:
@@ -106,7 +71,9 @@ inline HFONT CreateFontFromParams(const std::wstring& face, int sizePts,
 // Convert HICON to premultiplied-alpha HBITMAP suitable for menu use
 inline HBITMAP IconToBitmap(HICON hIcon, int cx, int cy) {
     HDC hdcScreen = GetDC(nullptr);
+    if (!hdcScreen) return nullptr;
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    if (!hdcMem) { ReleaseDC(nullptr, hdcScreen); return nullptr; }
 
     BITMAPINFO bmi = {};
     bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
@@ -120,8 +87,7 @@ inline HBITMAP IconToBitmap(HICON hIcon, int cx, int cy) {
     HBITMAP hBmp = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
     if (hBmp) {
         HGDIOBJ oldBmp = SelectObject(hdcMem, hBmp);
-        // Fill with zero (fully transparent)
-        GDI_ERROR; // unused, just ensure pBits is zeroed via CreateDIBSection
+        // CreateDIBSection already zero-fills; memset is belt-and-suspenders.
         memset(pBits, 0, static_cast<size_t>(cx) * static_cast<size_t>(cy) * 4);
         DrawIconEx(hdcMem, 0, 0, hIcon, cx, cy, 0, nullptr, DI_NORMAL);
         SelectObject(hdcMem, oldBmp);
@@ -170,6 +136,13 @@ inline bool MatchesShortcut(WORD shortcut, WPARAM vk) {
     bool hasCtrl   = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     bool hasShift  = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     bool hasAlt    = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    // AltGr (common on non-US layouts) is delivered as synthetic left-Ctrl +
+    // right-Alt. Don't let it satisfy a real Ctrl requirement, or rebound
+    // Ctrl+Alt+letter shortcuts would fire while the user just types AltGr chars.
+    bool rAltDown  = (GetKeyState(VK_RMENU)    & 0x8000) != 0;
+    bool lCtrlDown = (GetKeyState(VK_LCONTROL) & 0x8000) != 0;
+    bool rCtrlDown = (GetKeyState(VK_RCONTROL) & 0x8000) != 0;
+    if (rAltDown && lCtrlDown && !rCtrlDown) hasCtrl = false;  // AltGr, not real Ctrl
     return (needCtrl == hasCtrl) && (needShift == hasShift) && (needAlt == hasAlt);
 }
 
@@ -227,8 +200,12 @@ inline std::wstring ExpandInitialText(const std::wstring& tmpl, int& outCursorPo
     }
 
     std::time_t now = std::time(nullptr);
-    struct tm localTime;
-    localtime_s(&localTime, &now);
+    struct tm localTime = {};
+    if (localtime_s(&localTime, &now) != 0) {
+        // Conversion failed (out-of-range time): keep a zeroed tm so wcsftime
+        // stays well-defined rather than reading indeterminate stack contents.
+        memset(&localTime, 0, sizeof(localTime));
+    }
 
     // Specifier letters accepted by MSVC wcsftime (with or without #/E/O modifier).
     static const wchar_t* kValidSpec =
@@ -273,11 +250,13 @@ inline std::wstring ExpandInitialText(const std::wstring& tmpl, int& outCursorPo
                 continue;
             }
 
-            // Valid specifier — call wcsftime on this single token.
+            // Valid specifier — call wcsftime on this single token. The token is
+            // already validated, so len==0 means a legitimately-empty result
+            // (e.g. %p in a 24h locale), not a failure — append it verbatim.
             std::wstring token = piece.substr(i, letterIdx - i + 1);
             wchar_t buf[256];
             size_t len = wcsftime(buf, 256, token.c_str(), &localTime);
-            result.append((len > 0) ? std::wstring(buf, len) : token);
+            result.append(buf, len);
             i = letterIdx + 1;
         }
         return result;
