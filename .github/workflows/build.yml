@@ -13,7 +13,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # Pinned to windows-2022 (VS 2022 / v17). windows-latest is migrating to
+    # Windows Server 2025 + Visual Studio 2026 (v18.x) by 2026-06-15, which would
+    # break the "Visual Studio 17 2022" generator below and drops the Win10 SDK.
+    runs-on: windows-2022
 
     steps:
       - name: Checkout
