@@ -1,7 +1,7 @@
 #pragma once
 
 // Version
-#define ULTRANOTE_VERSION       L"v1.8.0"
+#define ULTRANOTE_VERSION       L"v1.8.5"
 
 // Icons
 #define IDI_APP                 101
@@ -39,9 +39,9 @@
 #define ID_TRAY_PASTENOTE       205
 #define ID_TRAY_EXIT            209
 
-// Language selection (dynamic range: ID_LANG_BASE + index)
-#define ID_LANG_BASE            230
-#define ID_LANG_MAX             249
+// (Former ID_LANG_BASE/MAX 230-249 range removed: language selection runs through
+// the Settings dialog combo, not a menu command range. Those IDs overlapped
+// ID_NL_NOTE_ALARM (230) and ID_NL_FOLDER_* (240-242) — the range was dead.)
 
 // Note context menu
 #define IDR_NOTE_MENU           210

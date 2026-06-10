@@ -122,6 +122,7 @@ confirm.delete_one=Diese Notiz löschen?
 confirm.delete_multi=%d Notizen löschen?
 
 app.already_running=UltraNote läuft bereits.
+error.notes_corrupt=notes.json ist offenbar beschädigt. Es konnte nur ein Teil Ihrer Notizen geladen werden; die Originaldatei wurde als 'notes.json.bak' gesichert, damit nichts verloren geht.
 hotkey.register_failed=Ein globales Tastenkürzel konnte nicht registriert werden (bereits von einem anderen Programm belegt).
 note.empty=(leer)
 note.untitled=(Ohne Titel)
@@ -159,6 +160,7 @@ settings.sc_ontop=Immer im Vordergrund
 settings.sc_hide=Verstecken
 settings.sc_global_new=Neue Notiz (Global)
 settings.sc_global_list=Notizliste (Global)
+settings.sc_global_needmod=Ein globaler Hotkey muss Strg oder Alt enthalten (eine Taste ohne Modifier — oder nur mit Shift — würde diese Taste systemweit blockieren).
 
 settings.group_display=Anzeigen
 settings.group_delete=Löschen

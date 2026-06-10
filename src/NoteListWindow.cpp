@@ -15,6 +15,7 @@
 #include <ctime>
 #include <algorithm>
 #include <vector>
+#include <unordered_set>
 
 static const wchar_t* NOTELIST_WND_CLASS = L"UltraNoteListWindow";
 
@@ -50,12 +51,19 @@ NoteListWindow::~NoteListWindow() {
     if (m_hSearchIcon) { DestroyIcon(m_hSearchIcon); m_hSearchIcon = nullptr; }
     if (m_hSearchFont) { DeleteObject(m_hSearchFont); m_hSearchFont = nullptr; }
     if (m_hSymbolFont) { DeleteObject(m_hSymbolFont); m_hSymbolFont = nullptr; }
+    if (m_hAllNotesFont) { DeleteObject(m_hAllNotesFont); m_hAllNotesFont = nullptr; }
     if (m_hAttachIcon) { DestroyIcon(m_hAttachIcon); m_hAttachIcon = nullptr; }
     if (m_hwnd) {
+        // Persist layout before the window is gone (covers app exit and the
+        // language-change rebuild, which destroy the window without WM_CLOSE).
+        SaveSettings();
         SetWindowLongPtrW(m_hwnd, 0, 0);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
+    // Free the WM_SETICON icons after the window is gone (it referenced them).
+    if (m_hWndIconSmall) { DestroyIcon(m_hWndIconSmall); m_hWndIconSmall = nullptr; }
+    if (m_hWndIconBig)   { DestroyIcon(m_hWndIconBig);   m_hWndIconBig   = nullptr; }
 }
 
 // ============================================================================
@@ -74,17 +82,19 @@ bool NoteListWindow::Create() {
 
     if (!m_hwnd) return false;
 
-    // Set window icon (title bar + taskbar)
-    HICON hIconSmall = static_cast<HICON>(LoadImageW(m_hInst, MAKEINTRESOURCE(IDI_NOTELIST),
-                                                      IMAGE_ICON,
-                                                      GetSystemMetrics(SM_CXSMICON),
-                                                      GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
-    HICON hIconBig = static_cast<HICON>(LoadImageW(m_hInst, MAKEINTRESOURCE(IDI_NOTELIST),
+    // Set window icon (title bar + taskbar). Kept as members and freed in the
+    // destructor: LoadImage-created icons are owned (unlike LoadIcon-shared ones),
+    // so without DestroyIcon each language-change rebuild would leak two handles.
+    m_hWndIconSmall = static_cast<HICON>(LoadImageW(m_hInst, MAKEINTRESOURCE(IDI_NOTELIST),
                                                     IMAGE_ICON,
-                                                    GetSystemMetrics(SM_CXICON),
-                                                    GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR));
-    if (hIconSmall) SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(hIconSmall));
-    if (hIconBig)   SendMessageW(m_hwnd, WM_SETICON, ICON_BIG,   reinterpret_cast<LPARAM>(hIconBig));
+                                                    GetSystemMetrics(SM_CXSMICON),
+                                                    GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
+    m_hWndIconBig = static_cast<HICON>(LoadImageW(m_hInst, MAKEINTRESOURCE(IDI_NOTELIST),
+                                                  IMAGE_ICON,
+                                                  GetSystemMetrics(SM_CXICON),
+                                                  GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR));
+    if (m_hWndIconSmall) SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(m_hWndIconSmall));
+    if (m_hWndIconBig)   SendMessageW(m_hwnd, WM_SETICON, ICON_BIG,   reinterpret_cast<LPARAM>(m_hWndIconBig));
 
     auto& app = Application::Get();
 
@@ -195,6 +205,9 @@ void NoteListWindow::Show() {
 }
 
 void NoteListWindow::Hide() {
+    // Persist window position/size and column layout here (not only in WM_CLOSE)
+    // so tray-toggle, app exit and language-change rebuilds don't lose them.
+    SaveSettings();
     StopPreviewTimer();
     HidePreviewNote();
     // Reset search field so the list is unfiltered the next time it opens.
@@ -309,8 +322,8 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 } else if (folderIdx - 1 < folders.size()) {
                     targetFolder = folders[folderIdx - 1];
                 }
-                // Collect all selected note IDs first — SetNoteFolder triggers
-                // RefreshNoteList which repopulates the ListView and clears selection
+                // Collect all selected note IDs first — a per-note refresh would
+                // repopulate the ListView and clear the selection mid-loop.
                 std::vector<uint64_t> ids;
                 int idx = -1;
                 while ((idx = ListView_GetNextItem(m_hListView, idx, LVNI_SELECTED)) >= 0) {
@@ -320,8 +333,17 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     ListView_GetItem(m_hListView, &item);
                     ids.push_back(static_cast<uint64_t>(item.lParam));
                 }
+                // Assign the folder to the whole batch, then refresh once
+                // (SetNoteFolder would refresh per note → N full repopulates).
+                auto& app = Application::Get();
+                bool changed = false;
                 for (uint64_t noteId : ids) {
-                    Application::Get().SetNoteFolder(noteId, targetFolder);
+                    NoteData* note = app.FindNoteData(noteId);
+                    if (note) { note->folder = targetFolder; changed = true; }
+                }
+                if (changed) {
+                    app.MarkDirty();
+                    app.RefreshNoteList();
                 }
                 return 0;
             }
@@ -469,11 +491,11 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                 return 0;
                             }
                             if (MatchesShortcut(settings.shortcuts[SC_ALWAYS_ON_TOP], kd->wVKey)) {
-                                // Collect IDs first: ToggleNoteAlwaysOnTop ->
-                                // Refresh repopulates the list and clears the
-                                // selection, so walking it live would toggle only
-                                // the first note. Refresh also rewrites COL_ONTOP,
-                                // so no manual SetItemText is needed.
+                                // Collect IDs first: a per-note Refresh would
+                                // repopulate the list and clear the selection, so
+                                // walking it live would toggle only the first note.
+                                // Mutate each note in the loop, then Refresh ONCE
+                                // (which rewrites COL_ONTOP for every row).
                                 std::vector<uint64_t> ids;
                                 int idx = -1;
                                 while ((idx = ListView_GetNextItem(m_hListView, idx, LVNI_SELECTED)) != -1) {
@@ -483,8 +505,12 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                     if (ListView_GetItem(m_hListView, &item))
                                         ids.push_back(static_cast<uint64_t>(item.lParam));
                                 }
-                                for (uint64_t noteId : ids)
-                                    ToggleNoteAlwaysOnTop(noteId);
+                                if (!ids.empty()) {
+                                    for (uint64_t noteId : ids)
+                                        ApplyAlwaysOnTopToggle(noteId);
+                                    Application::Get().MarkDirty();
+                                    Refresh();
+                                }
                                 return 0;
                             }
                             if (MatchesShortcut(settings.shortcuts[SC_HIDE], kd->wVKey)) {
@@ -528,24 +554,17 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                     cd->clrTextBk = COLOR_ZEBRA_BG;
                                 }
 
-                                // Highlight rows with an alarm firing today
-                                if (!selected) {
+                                // Highlight rows with an alarm firing today. The set
+                                // is precomputed once per PopulateList, so the paint
+                                // path is just a hash lookup (no GetLocalTime /
+                                // ComputeNextFireTime / linear note search per row).
+                                if (!selected && !m_alarmTodayIds.empty()) {
                                     LVITEMW it = {};
                                     it.mask = LVIF_PARAM;
                                     it.iItem = itemIdx;
-                                    if (ListView_GetItem(m_hListView, &it)) {
-                                        NoteData* note = Application::Get().FindNoteData(
-                                            static_cast<uint64_t>(it.lParam));
-                                        if (note && note->alarm.has_value() && !note->alarm->paused) {
-                                            SYSTEMTIME now; GetLocalTime(&now);
-                                            auto next = AlarmScheduler::ComputeNextFireTime(*note->alarm, now);
-                                            if (next.has_value() &&
-                                                next->wYear == now.wYear &&
-                                                next->wMonth == now.wMonth &&
-                                                next->wDay == now.wDay) {
-                                                cd->clrText = RGB(200, 30, 30);
-                                            }
-                                        }
+                                    if (ListView_GetItem(m_hListView, &it) &&
+                                        m_alarmTodayIds.count(static_cast<uint64_t>(it.lParam))) {
+                                        cd->clrText = RGB(200, 30, 30);
                                     }
                                 }
                                 return CDRF_NOTIFYSUBITEMDRAW;
@@ -606,9 +625,12 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                     RECT rc = {};
                                     ListView_GetSubItemRect(m_hListView, itemIdx, sub, LVIR_BOUNDS, &rc);
 
-                                    HBRUSH hBg = CreateSolidBrush(bgColor);
-                                    FillRect(cd->nmcd.hdc, &rc, hBg);
-                                    DeleteObject(hBg);
+                                    // Fill the cell background via ETO_OPAQUE (like the
+                                    // checkbox columns above) instead of creating and
+                                    // destroying a solid brush on every cell paint.
+                                    SetBkColor(cd->nmcd.hdc, bgColor);
+                                    ExtTextOutW(cd->nmcd.hdc, 0, 0, ETO_OPAQUE,
+                                                &rc, nullptr, 0, nullptr);
 
                                     wchar_t buf[4] = {};
                                     ListView_GetItemText(m_hListView, itemIdx, sub, buf, 4);
@@ -788,16 +810,18 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
                 int textLeft = iconX + iconSize + 4;
 
-                // Bold font for "All Notes"
-                HFONT hFont = nullptr;
+                // Bold font for "All Notes" (cached as a member; previously created
+                // and destroyed on every item paint).
                 HFONT hOldFont = nullptr;
                 if (isAllNotes) {
-                    LOGFONTW lf = {};
-                    HFONT hDefault = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-                    GetObjectW(hDefault, sizeof(lf), &lf);
-                    lf.lfWeight = FW_BOLD;
-                    hFont = CreateFontIndirectW(&lf);
-                    hOldFont = static_cast<HFONT>(SelectObject(dis->hDC, hFont));
+                    if (!m_hAllNotesFont) {
+                        LOGFONTW lf = {};
+                        HFONT hDefault = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+                        GetObjectW(hDefault, sizeof(lf), &lf);
+                        lf.lfWeight = FW_BOLD;
+                        m_hAllNotesFont = CreateFontIndirectW(&lf);
+                    }
+                    hOldFont = static_cast<HFONT>(SelectObject(dis->hDC, m_hAllNotesFont));
                 }
 
                 RECT textRc = dis->rcItem;
@@ -805,9 +829,8 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 DrawTextW(dis->hDC, text.c_str(), static_cast<int>(text.size()),
                           &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
-                if (hFont) {
+                if (hOldFont) {
                     SelectObject(dis->hDC, hOldFont);
-                    DeleteObject(hFont);
                 }
 
                 // Focus rect
@@ -854,8 +877,12 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 // Only show preview if cursor is actually over our ListView
                 // (also allow the preview note window itself, to avoid blink loops)
                 HWND hwndUnderCursor = WindowFromPoint(pt);
-                bool cursorOverList = (hwndUnderCursor == m_hListView ||
-                    hwndUnderCursor == ListView_GetHeader(m_hListView));
+                // The cursor hot-spot ("tip") must be over an actual list row, NOT
+                // the column header. WindowFromPoint returns the header child window
+                // while the tip hovers it, so excluding the header here stops the
+                // hit-test below from resolving the header strip to row 0 (which used
+                // to preview the first note the moment the cursor crossed the header).
+                bool cursorOverList = (hwndUnderCursor == m_hListView);
                 if (!cursorOverList && m_previewNoteId > 0) {
                     NoteWindow* previewWnd = Application::Get().FindNoteWindow(m_previewNoteId);
                     if (previewWnd && hwndUnderCursor == previewWnd->GetHwnd())
@@ -889,7 +916,13 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     ListView_GetItem(m_hListView, &item);
                     uint64_t noteId = static_cast<uint64_t>(item.lParam);
 
-                    if (noteId != m_previewNoteId) {
+                    // Never preview a note that is already on screen. Doing so
+                    // makes ShowPreviewNote bail without setting m_previewNoteId,
+                    // so this branch would re-fire every tick — and the
+                    // HidePreviewNote()/SetFocus dance would steal focus from the
+                    // search field on every wake-up, making it unusable.
+                    if (noteId != m_previewNoteId &&
+                        !Application::Get().IsNoteVisible(noteId)) {
                         // Same row, not yet previewing this note: wait for the delay.
                         DWORD elapsed = GetTickCount() - m_previewHoverStart;
                         if (elapsed >= static_cast<DWORD>(m_previewDelay)) {
@@ -910,9 +943,7 @@ LRESULT NoteListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
 
         case WM_CLOSE:
-            SaveSettings();
-            StopPreviewTimer();
-            HidePreviewNote();
+            // Hide() persists settings and tears down the preview timer.
             Hide();
             return 0;
 
@@ -1282,15 +1313,19 @@ LRESULT CALLBACK NoteListWindow::ListViewSubclassProc(
         };
 
         if (MatchesShortcut(settings.shortcuts[SC_ALWAYS_ON_TOP], vk)) {
-            // Collect IDs first: ToggleNoteAlwaysOnTop -> Refresh repopulates the
-            // list and clears the selection, so forEachSelected would toggle only
-            // the first note. Refresh also rewrites COL_ONTOP.
+            // Collect IDs first: a per-note Refresh repopulates the list and
+            // clears the selection, so forEachSelected would toggle only the
+            // first note. Mutate the batch, then Refresh ONCE (rewrites COL_ONTOP).
             std::vector<uint64_t> ids;
             forEachSelected([&](int /*idx*/, uint64_t noteId) {
                 ids.push_back(noteId);
             });
-            for (uint64_t noteId : ids)
-                self->ToggleNoteAlwaysOnTop(noteId);
+            if (!ids.empty()) {
+                for (uint64_t noteId : ids)
+                    self->ApplyAlwaysOnTopToggle(noteId);
+                Application::Get().MarkDirty();
+                self->Refresh();
+            }
             return 0;
         }
         if (MatchesShortcut(settings.shortcuts[SC_HIDE], vk)) {
@@ -1323,6 +1358,9 @@ LRESULT CALLBACK NoteListWindow::ListViewSubclassProc(
 }
 
 void NoteListWindow::OnHeaderBeginDrag(int sourceIdx) {
+    // A column drag started: clear the click-tracking flag so the WM_LBUTTONUP
+    // that ends the drop is not mistaken for a click-to-sort in HeaderSubclassProc.
+    m_headerMouseDown  = false;
     m_headerDragging   = true;
     m_headerDragSource = sourceIdx;
     if (!m_headerDragOverlay)
@@ -1620,6 +1658,13 @@ void NoteListWindow::PopulateList(const wchar_t* dateFmt) {
 
     auto& notes = Application::Get().GetAllNotes();
 
+    // Sample the wall clock once for the whole populate (used both for the
+    // "next alarm" column and the per-row "fires today" highlight set) instead
+    // of calling GetLocalTime for every note.
+    SYSTEMTIME now;
+    GetLocalTime(&now);
+    m_alarmTodayIds.clear();
+
     int insertIdx = 0;
     for (size_t i = 0; i < notes.size(); ++i) {
         auto& note = *notes[i];
@@ -1675,9 +1720,11 @@ void NoteListWindow::PopulateList(const wchar_t* dateFmt) {
             if (ts > 0) {
                 time_t t = static_cast<time_t>(ts);
                 struct tm tm = {};
-                localtime_s(&tm, &t);
-                wchar_t buf[64];
-                wcsftime(buf, 64, dateFmt, &tm);
+                wchar_t buf[64] = {};
+                // Guard localtime_s (see Print path): out-of-range ts must not
+                // trip the debug assertion or feed wcsftime an uninitialized tm.
+                if (localtime_s(&tm, &t) == 0)
+                    wcsftime(buf, 64, dateFmt, &tm);
                 ListView_SetItemText(m_hListView, idx, COL_CREATED, buf);
             }
         }
@@ -1694,8 +1741,6 @@ void NoteListWindow::PopulateList(const wchar_t* dateFmt) {
 
         // Alarm columns
         if (note.alarm.has_value()) {
-            SYSTEMTIME now;
-            GetLocalTime(&now);
             auto next = AlarmScheduler::ComputeNextFireTime(*note.alarm, now);
 
             std::wstring nextStr;
@@ -1712,6 +1757,15 @@ void NoteListWindow::PopulateList(const wchar_t* dateFmt) {
                 // Status symbol: paused = hollow, else solid
                 if (note.alarm->paused) statusStr = L"\u25CB"; // hollow circle
                 else statusStr = L"\u25CF"; // solid circle
+
+                // Record "fires today" for the row custom-draw highlight (matches
+                // the same year/month/day check that used to run per row paint).
+                if (!note.alarm->paused &&
+                    next->wYear == now.wYear &&
+                    next->wMonth == now.wMonth &&
+                    next->wDay == now.wDay) {
+                    m_alarmTodayIds.insert(note.id);
+                }
             }
 
             ListView_SetItemText(m_hListView, idx, COL_NEXT_ALARM,
@@ -1842,7 +1896,10 @@ void NoteListWindow::LoadSettings() {
     if (itPV != settings.end()) {
         m_previewEnabled = (itPV->second != 0);
         if (m_previewEnabled) {
-            StartPreviewTimer();
+            // Don't start the poll timer here: LoadSettings runs during the
+            // hidden pre-create in Application::Initialize, which would leave a
+            // 100ms hover timer waking the process up while it sits idle in the
+            // tray. Show() starts the timer when the window actually opens.
             // Update menu checkmark
             HMENU hMenuBar = GetMenu(m_hwnd);
             if (hMenuBar) {
@@ -1895,6 +1952,8 @@ void NoteListWindow::LoadSettings() {
 }
 
 void NoteListWindow::SaveSettings() {
+    if (!m_hwnd) return;  // window already destroyed (defensive for destructor path)
+
     auto settings = Storage::LoadSettings();
 
     RECT wr;
@@ -2005,8 +2064,29 @@ void NoteListWindow::ShowHeaderContextMenu(int screenX, int screenY) {
 void NoteListWindow::ApplyCurrentSort() {
     if (m_sortColumn < 0 || !m_hListView) return;
 
-    LPARAM sortParam = static_cast<LPARAM>(m_sortColumn) | (m_sortAscending ? 0x10000 : 0);
-    ListView_SortItems(m_hListView, CompareFunc, sortParam);
+    // Build a one-shot lookup so the comparator avoids a linear FindNoteData per
+    // comparison. For the two computed alarm columns, precompute each note's sort
+    // key once here instead of once per comparison.
+    SortContext ctx;
+    ctx.column    = m_sortColumn;
+    ctx.ascending = m_sortAscending;
+    auto& notes = Application::Get().GetAllNotes();
+    ctx.byId.reserve(notes.size());
+    for (auto& n : notes) ctx.byId.emplace(n->id, n.get());
+
+    if (m_sortColumn == COL_NEXT_ALARM || m_sortColumn == COL_INTERVAL) {
+        SYSTEMTIME now;
+        GetLocalTime(&now);
+        for (auto& n : notes) {
+            if (!n->alarm.has_value()) continue;
+            if (m_sortColumn == COL_NEXT_ALARM)
+                ctx.nextFire.emplace(n->id, AlarmScheduler::ComputeNextFireTime(*n->alarm, now));
+            else
+                ctx.interval.emplace(n->id, AlarmScheduler::DescribeInterval(*n->alarm));
+        }
+    }
+
+    ListView_SortItems(m_hListView, CompareFunc, reinterpret_cast<LPARAM>(&ctx));
 
     // Update header sort arrows
     HWND hHeader = ListView_GetHeader(m_hListView);
@@ -2026,15 +2106,18 @@ void NoteListWindow::ApplyCurrentSort() {
 }
 
 int CALLBACK NoteListWindow::CompareFunc(LPARAM lp1, LPARAM lp2, LPARAM sortParam) {
-    int col = static_cast<int>(sortParam & 0xFFFF);
-    bool ascending = (sortParam & 0x10000) != 0;
+    const SortContext& ctx = *reinterpret_cast<const SortContext*>(sortParam);
+    int col = ctx.column;
+    bool ascending = ctx.ascending;
 
     uint64_t id1 = static_cast<uint64_t>(lp1);
     uint64_t id2 = static_cast<uint64_t>(lp2);
 
-    NoteData* n1 = Application::Get().FindNoteData(id1);
-    NoteData* n2 = Application::Get().FindNoteData(id2);
-    if (!n1 || !n2) return 0;
+    auto it1 = ctx.byId.find(id1);
+    auto it2 = ctx.byId.find(id2);
+    if (it1 == ctx.byId.end() || it2 == ctx.byId.end()) return 0;
+    NoteData* n1 = it1->second;
+    NoteData* n2 = it2->second;
 
     int result = 0;
     switch (col) {
@@ -2065,10 +2148,14 @@ int CALLBACK NoteListWindow::CompareFunc(LPARAM lp1, LPARAM lp2, LPARAM sortPara
             result = static_cast<int>(n1->layout.alwaysOnTop) - static_cast<int>(n2->layout.alwaysOnTop);
             break;
         case COL_NEXT_ALARM: {
-            // Notes without a future alarm sort to the end regardless of direction
-            SYSTEMTIME now; GetLocalTime(&now);
-            auto f1 = n1->alarm.has_value() ? AlarmScheduler::ComputeNextFireTime(*n1->alarm, now) : std::nullopt;
-            auto f2 = n2->alarm.has_value() ? AlarmScheduler::ComputeNextFireTime(*n2->alarm, now) : std::nullopt;
+            // Notes without a future alarm sort to the end regardless of direction.
+            // Next-fire times were computed once per note in ApplyCurrentSort.
+            auto nf = [&](uint64_t id) -> std::optional<SYSTEMTIME> {
+                auto it = ctx.nextFire.find(id);
+                return it != ctx.nextFire.end() ? it->second : std::nullopt;
+            };
+            auto f1 = nf(id1);
+            auto f2 = nf(id2);
             if (!f1 && !f2) return 0;
             if (!f1) return 1;     // n1 to the end
             if (!f2) return -1;    // n2 to the end
@@ -2076,8 +2163,14 @@ int CALLBACK NoteListWindow::CompareFunc(LPARAM lp1, LPARAM lp2, LPARAM sortPara
             return ascending ? cmp : -cmp;
         }
         case COL_INTERVAL: {
-            std::wstring i1 = n1->alarm.has_value() ? AlarmScheduler::DescribeInterval(*n1->alarm) : L"";
-            std::wstring i2 = n2->alarm.has_value() ? AlarmScheduler::DescribeInterval(*n2->alarm) : L"";
+            // Interval strings were computed once per note in ApplyCurrentSort.
+            auto iv = [&](uint64_t id) -> const std::wstring& {
+                static const std::wstring kEmpty;
+                auto it = ctx.interval.find(id);
+                return it != ctx.interval.end() ? it->second : kEmpty;
+            };
+            const std::wstring& i1 = iv(id1);
+            const std::wstring& i2 = iv(id2);
             if (i1.empty() && i2.empty()) return 0;
             if (i1.empty()) return 1;
             if (i2.empty()) return -1;
@@ -2156,16 +2249,22 @@ void NoteListWindow::DeleteSelectedNotes() {
     int count = ListView_GetSelectedCount(m_hListView);
     if (count <= 0) return;
 
-    std::wstring msg;
-    if (count == 1) {
-        msg = Ls(L"confirm.delete_one");
-    } else {
-        msg = FormatString(Ls(L"confirm.delete_multi").c_str(), count);
-    }
+    // Honour the "confirm before delete" setting, matching Application's path.
+    // Hold the settings object: shortcuts is a C-array that would dangle if we
+    // wrote `auto x = LoadFromStorage().confirmDelete` style indirection.
+    auto settings = SettingsDialog::LoadFromStorage();
+    if (settings.confirmDelete) {
+        std::wstring msg;
+        if (count == 1) {
+            msg = Ls(L"confirm.delete_one");
+        } else {
+            msg = FormatCount(Ls(L"confirm.delete_multi"), count);
+        }
 
-    int result = MessageBoxW(m_hwnd, msg.c_str(), L"UltraNote",
-                              MB_YESNO | MB_ICONQUESTION);
-    if (result != IDYES) return;
+        int result = MessageBoxW(m_hwnd, msg.c_str(), L"UltraNote",
+                                  MB_YESNO | MB_ICONQUESTION);
+        if (result != IDYES) return;
+    }
 
     std::vector<uint64_t> ids;
     int idx = -1;
@@ -2177,9 +2276,9 @@ void NoteListWindow::DeleteSelectedNotes() {
         ids.push_back(static_cast<uint64_t>(item.lParam));
     }
 
-    for (uint64_t id : ids) {
-        Application::Get().DeleteNote(id);
-    }
+    // One batch delete (single SaveAll + Refresh) instead of N× DeleteNote,
+    // which would write notes.json and repopulate the list once per note.
+    Application::Get().DeleteNotesByIds(ids);
 }
 
 void NoteListWindow::RenameSelectedNote() {
@@ -2344,7 +2443,7 @@ void NoteListWindow::ToggleNoteHidden(uint64_t noteId) {
     }
 }
 
-void NoteListWindow::ToggleNoteAlwaysOnTop(uint64_t noteId) {
+void NoteListWindow::ApplyAlwaysOnTopToggle(uint64_t noteId) {
     auto& app = Application::Get();
     NoteData* note = app.FindNoteData(noteId);
     if (!note) return;
@@ -2356,7 +2455,11 @@ void NoteListWindow::ToggleNoteAlwaysOnTop(uint64_t noteId) {
                      note->layout.alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
                      0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     }
-    app.MarkDirty();
+}
+
+void NoteListWindow::ToggleNoteAlwaysOnTop(uint64_t noteId) {
+    ApplyAlwaysOnTopToggle(noteId);
+    Application::Get().MarkDirty();
     Refresh();
 }
 
@@ -2373,7 +2476,10 @@ void NoteListWindow::ShowNoteContextMenu(int screenX, int screenY) {
     if (!hPopup) return;
 
     auto& app = Application::Get();
-    auto sc = SettingsDialog::LoadFromStorage().shortcuts;
+    auto settings = SettingsDialog::LoadFromStorage();
+    auto& sc = settings.shortcuts;   // hold the object: shortcuts is a C-array,
+                                     // `auto sc = ....shortcuts` would decay to a
+                                     // pointer into the destroyed temporary.
 
     // Edit/Rename only for single selection
     UINT singleFlag = multiSelect ? MF_GRAYED : 0;
@@ -2487,7 +2593,7 @@ void NoteListWindow::RenameFolderDialog(const std::wstring& oldName) {
 }
 
 void NoteListWindow::DeleteFolderConfirm(const std::wstring& name) {
-    std::wstring msg = FormatString(Ls(L"folder.confirm_delete").c_str(), name.c_str());
+    std::wstring msg = FormatStr(Ls(L"folder.confirm_delete"), name);
     int result = MessageBoxW(m_hwnd, msg.c_str(), L"UltraNote",
                               MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
     if (result == IDYES) {
@@ -2605,7 +2711,8 @@ void NoteListWindow::RestorePreviewPosition() {
 }
 
 void NoteListWindow::HidePreviewNote() {
-    if (m_previewNoteId > 0) {
+    bool hadPreview = (m_previewNoteId > 0);
+    if (hadPreview) {
         RestorePreviewPosition();
         if (m_previewWasHidden) {
             Application::Get().HideNotePreview(m_previewNoteId);
@@ -2615,8 +2722,10 @@ void NoteListWindow::HidePreviewNote() {
     m_previewNoteIdx = -1;
     m_previewWasHidden = false;
 
-    // Restore focus and redraw so selection highlight stays blue
-    if (m_hListView) {
+    // Restore focus and redraw only if a preview was actually showing. The
+    // hover timer calls this on every row change; an unconditional SetFocus
+    // would yank focus away from the search field on each wake-up.
+    if (hadPreview && m_hListView) {
         SetFocus(m_hListView);
         InvalidateRect(m_hListView, nullptr, FALSE);
     }

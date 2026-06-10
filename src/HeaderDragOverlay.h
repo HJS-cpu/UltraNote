@@ -33,6 +33,14 @@ private:
     HWND      m_hStripe       = nullptr;  // vertical red stripe spanning header height
     int       m_stripeHeight  = 0;        // cached height the stripe bitmap was painted for
 
+    // DPI-scaled marker dimensions, recomputed in Show() via EnsureDpiScale().
+    // The k* values below are the 96-dpi reference sizes.
+    UINT      m_dpi           = 0;        // 0 = not yet measured
+    int       m_arrowW        = 11;       // = kArrowW at 96 dpi
+    int       m_arrowH        = 6;        // = kArrowH at 96 dpi
+    int       m_stripeW       = 3;        // = kStripeW at 96 dpi
+    void EnsureDpiScale(int xScreen, int yTopScreen);
+
     static constexpr int kArrowW  = 11;
     static constexpr int kArrowH  = 6;
     static constexpr int kStripeW = 3;

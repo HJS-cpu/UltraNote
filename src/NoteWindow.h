@@ -11,6 +11,7 @@
 
 class FindInNoteDialog;
 class AlarmConfigDialog;
+struct UrlSpan;   // defined in Utils.h; only referenced by PaintTextWithLinks
 
 class NoteWindow {
 public:
@@ -31,6 +32,10 @@ public:
 
     void EnterEditMode();
     void ExitEditMode(bool save);
+    // Flush the live EDIT-control text into the note data WITHOUT tearing the
+    // control down. Used by the shutdown / WM_QUERYENDSESSION paths so unsaved
+    // edits still reach notes.json. ExitEditMode(true) delegates to this.
+    void CommitEditText();
     bool IsEditing() const { return m_inEditMode; }
 
     // In-note search (Find Next). Returns true if a match was highlighted.
@@ -57,7 +62,8 @@ private:
     void PaintBackground(HDC hdc, const RECT& rc);
     void PaintBorder(HDC hdc, const RECT& rc);
     void PaintText(HDC hdc, const RECT& rc);
-    void PaintTextWithLinks(HDC hdc, const RECT& textRc);
+    void PaintTextWithLinks(HDC hdc, const RECT& textRc,
+                            const std::vector<UrlSpan>& urls);
     void PaintAttachmentBar(HDC hdc, const RECT& rc);
 
     // Attachment bar

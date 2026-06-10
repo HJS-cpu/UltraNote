@@ -91,7 +91,12 @@ bool AlarmConfigDialog::Create() {
         y = or2.top  + ((or2.bottom - or2.top) - totalH) / 2;
     }
     RECT wa;
-    SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
+    // Clamp to the OWNER's monitor work area, not always the primary — otherwise
+    // the dialog jumps to the primary monitor when the owner is on a second one.
+    HMONITOR hMon = MonitorFromWindow(m_hOwner, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    if (GetMonitorInfoW(hMon, &mi)) wa = mi.rcWork;
+    else SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
     if (x < wa.left) x = wa.left;
     if (y < wa.top)  y = wa.top;
     if (x + totalW > wa.right)  x = wa.right - totalW;
@@ -102,6 +107,9 @@ bool AlarmConfigDialog::Create() {
                              style, x, y, totalW, totalH,
                              m_hOwner, nullptr, m_hInst, this);
     if (!m_hwnd) return false;
+
+    // Route keyboard navigation through the app message loop's IsDialogMessageW.
+    Application::Get().RegisterModelessDialog(m_hwnd);
 
     if (m_hOwner) EnableWindow(m_hOwner, FALSE);
     ShowWindow(m_hwnd, SW_SHOW);
@@ -124,6 +132,7 @@ LRESULT CALLBACK AlarmConfigDialog::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPAR
 }
 
 LRESULT AlarmConfigDialog::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
+    HWND hwnd = m_hwnd;   // local copy: WM_NCDESTROY nulls m_hwnd
     switch (msg) {
         case WM_CREATE:
             CreateControls();
@@ -137,7 +146,8 @@ LRESULT AlarmConfigDialog::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             UINT code = HIWORD(wp);
 
             if (cmd == IDC_ALARM_OK)     { OnOk();     return 0; }
-            if (cmd == IDC_ALARM_CANCEL) { DestroyWindow(m_hwnd); return 0; }
+            // IDCANCEL: Esc via IsDialogMessageW (no Cancel button carries that id).
+            if (cmd == IDC_ALARM_CANCEL || cmd == IDCANCEL) { DestroyWindow(m_hwnd); return 0; }
             if (cmd == IDC_ALARM_REMOVE) { OnRemove(); return 0; }
             if (cmd == IDC_ALARM_SOUNDFILE_BTN) { BrowseSoundFile(); return 0; }
 
@@ -214,12 +224,13 @@ LRESULT AlarmConfigDialog::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_NCDESTROY: {
-            SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, 0);
+            Application::Get().UnregisterModelessDialog(hwnd);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             m_hwnd = nullptr;
-            return 0;
+            break;   // fall through to DefWindowProc with the captured hwnd
         }
     }
-    return DefWindowProcW(m_hwnd, msg, wp, lp);
+    return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
 static HWND MakeStatic(HWND parent, HINSTANCE hInst, HFONT font,
@@ -597,19 +608,28 @@ void AlarmConfigDialog::LoadFromNote() {
     if (hadAlarm) {
         a = *note->alarm;
     } else {
-        // New alarm defaults: now + 10 minutes, daily
+        // New alarm defaults: now + 10 minutes, once
         SYSTEMTIME now;
         GetLocalTime(&now);
-        a.startTime = now;
-        // Round to next 10 min for usability
-        int minute = a.startTime.wMinute + 10;
-        a.startTime.wMinute = static_cast<WORD>(minute % 60);
-        if (minute >= 60) {
-            a.startTime.wHour = static_cast<WORD>((a.startTime.wHour + 1) % 24);
-        }
+        // +10 min via FILETIME so 23:55 rolls hour/day/month/year correctly — the
+        // old wMinute%60 + wHour+1 wrap produced "today 00:05" (in the past), and
+        // a Once alarm then fired immediately.
+        FILETIME ft;
+        SystemTimeToFileTime(&now, &ft);
+        ULARGE_INTEGER uli;
+        uli.LowPart  = ft.dwLowDateTime;
+        uli.HighPart = ft.dwHighDateTime;
+        uli.QuadPart += 10LL * 60 * 10000000;   // +10 min in 100ns units
+        ft.dwLowDateTime  = uli.LowPart;
+        ft.dwHighDateTime = uli.HighPart;
+        FileTimeToSystemTime(&ft, &a.startTime);
         a.startTime.wSecond = 0;
+        a.startTime.wMilliseconds = 0;
         a.endDate = now;
         a.endDate.wYear++;
+        // Feb 29 -> Feb 28 when next year isn't a leap year (else invalid SYSTEMTIME).
+        FILETIME ftChk;
+        if (!SystemTimeToFileTime(&a.endDate, &ftChk)) a.endDate.wDay = 28;
         a.kind = AlarmKind::Once;
     }
 
@@ -669,6 +689,8 @@ void AlarmConfigDialog::LoadFromNote() {
     if (endDt.wYear == 0) {
         GetLocalTime(&endDt);
         endDt.wYear++;
+        FILETIME ftChk;
+        if (!SystemTimeToFileTime(&endDt, &ftChk)) endDt.wDay = 28;   // Feb 29 guard
     }
     SendMessageW(m_hEndDate, DTM_SETSYSTEMTIME, GDT_VALID, reinterpret_cast<LPARAM>(&endDt));
 
@@ -720,7 +742,7 @@ void AlarmConfigDialog::WriteToNote() {
 
     wchar_t buf[64];
     GetWindowTextW(m_hEditEveryN, buf, 32);
-    a.intervalDays = (std::max)(1, _wtoi(buf));
+    a.intervalDays = (std::clamp)(_wtoi(buf), 1, 365);   // match Storage clamp
 
     // Weekday mask
     a.weekdayMask = 0;
@@ -746,7 +768,7 @@ void AlarmConfigDialog::WriteToNote() {
     else if (SendMessageW(m_hRbEndOnDate,  BM_GETCHECK, 0, 0) == BST_CHECKED) a.endKind = AlarmEndKind::OnDate;
 
     GetWindowTextW(m_hEditEndCount, buf, 32);
-    a.endCount = (std::max)(1, _wtoi(buf));
+    a.endCount = (std::clamp)(_wtoi(buf), 1, 100000);   // match Storage clamp
     SYSTEMTIME endDt;
     SendMessageW(m_hEndDate, DTM_GETSYSTEMTIME, 0, reinterpret_cast<LPARAM>(&endDt));
     a.endDate = endDt;
@@ -758,7 +780,7 @@ void AlarmConfigDialog::WriteToNote() {
     GetWindowTextW(m_hEditSoundFile, soundBuf, MAX_PATH);
     a.soundFile = soundBuf;
     GetWindowTextW(m_hEditSnooze, buf, 32);
-    a.snoozeMinutes = (std::max)(1, _wtoi(buf));
+    a.snoozeMinutes = (std::clamp)(_wtoi(buf), 1, 100000);   // match Storage clamp
     a.paused = SendMessageW(m_hChkPaused, BM_GETCHECK, 0, 0) == BST_CHECKED;
 
     // Reset runtime state on config change (user edited the alarm)
@@ -776,14 +798,20 @@ void AlarmConfigDialog::UpdateControlStates() {
     bool monthlyNth = SendMessageW(m_hRbMonthlyNth, BM_GETCHECK, 0, 0) == BST_CHECKED;
     bool quarterly = SendMessageW(m_hRbQuarterly, BM_GETCHECK, 0, 0) == BST_CHECKED;
 
+    // Each numeric edit's UpDown spinner must share the edit's enabled state —
+    // otherwise clicking the arrows changes the value of a greyed-out edit (p68).
     EnableWindow(m_hEditEveryN, everyN);
+    EnableWindow(GetDlgItem(m_hwnd, IDC_ALARM_EVERY_N_SPIN), everyN);
     for (int i = 0; i < 7; ++i) EnableWindow(m_hChkWd[i], weekly);
     EnableWindow(m_hRbMonthlyDay, monthly);
     EnableWindow(m_hRbMonthlyNth, monthly);
     EnableWindow(m_hEditMonthlyDay, monthly && monthlyDay);
+    EnableWindow(GetDlgItem(m_hwnd, IDC_ALARM_MONTHLY_DAY_SPIN), monthly && monthlyDay);
     EnableWindow(m_hEditMonthlyNth, monthly && monthlyNth);
+    EnableWindow(GetDlgItem(m_hwnd, IDC_ALARM_MONTHLY_NTH_SPIN), monthly && monthlyNth);
     EnableWindow(m_hComboMonthlyWd, monthly && monthlyNth);
     EnableWindow(m_hEditQuarterDay, quarterly);
+    EnableWindow(GetDlgItem(m_hwnd, IDC_ALARM_QUARTER_DAY_SPIN), quarterly);
 
     // "Ends:" section is meaningless for a Once alarm (it fires exactly once
     // regardless of these settings). Disable the whole group in that case.
@@ -795,6 +823,7 @@ void AlarmConfigDialog::UpdateControlStates() {
     bool endAfterN = SendMessageW(m_hRbEndAfterN, BM_GETCHECK, 0, 0) == BST_CHECKED;
     bool endOnDate = SendMessageW(m_hRbEndOnDate, BM_GETCHECK, 0, 0) == BST_CHECKED;
     EnableWindow(m_hEditEndCount, !isOnce && endAfterN);
+    EnableWindow(GetDlgItem(m_hwnd, IDC_ALARM_END_COUNT_SPIN), !isOnce && endAfterN);
     EnableWindow(m_hEndDate,      !isOnce && endOnDate);
 
     bool sound = SendMessageW(m_hChkSound, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -813,6 +842,12 @@ void AlarmConfigDialog::UpdatePreview() {
     a.startTime.wDay    = dt.wDay;
     a.startTime.wHour   = tm.wHour;
     a.startTime.wMinute = tm.wMinute;
+    a.startTime.wSecond = 0;
+    // Populate wDayOfWeek via round-trip (else the Weekly preview is wrong for a
+    // future start date — matches WriteToNote).
+    FILETIME ftPv;
+    if (SystemTimeToFileTime(&a.startTime, &ftPv))
+        FileTimeToSystemTime(&ftPv, &a.startTime);
 
     if (SendMessageW(m_hRbOnce, BM_GETCHECK, 0, 0) == BST_CHECKED) a.kind = AlarmKind::Once;
     else if (SendMessageW(m_hRbDaily, BM_GETCHECK, 0, 0) == BST_CHECKED) a.kind = AlarmKind::Daily;
@@ -827,7 +862,7 @@ void AlarmConfigDialog::UpdatePreview() {
 
     wchar_t buf[32];
     GetWindowTextW(m_hEditEveryN, buf, 32);
-    a.intervalDays = (std::max)(1, _wtoi(buf));
+    a.intervalDays = (std::clamp)(_wtoi(buf), 1, 365);   // match Storage clamp
 
     for (int i = 0; i < 7; ++i) {
         if (SendMessageW(m_hChkWd[i], BM_GETCHECK, 0, 0) == BST_CHECKED) {
@@ -881,7 +916,7 @@ void AlarmConfigDialog::BrowseSoundFile() {
     ofn.lpstrFile   = file;
     ofn.nMaxFile    = MAX_PATH;
     ofn.lpstrFilter = L"Wave files (*.wav)\0*.wav\0All files (*.*)\0*.*\0";
-    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
     if (GetOpenFileNameW(&ofn)) {
         SetWindowTextW(m_hEditSoundFile, file);
     }

@@ -14,9 +14,14 @@
 #include <optional>
 #include <unordered_set>
 #include <shellapi.h>
+#include <mmsystem.h>   // PlaySoundW for the windowless sound-only alarm path
 
 static const wchar_t* APP_WND_CLASS = L"UltraNoteApp";
 static const wchar_t* MUTEX_NAME    = L"UltraNoteInstance";
+
+// Defined later in this translation unit; forward-declared so the startup
+// off-screen-healing pass in Initialize can reuse the same monitor check.
+static bool IsRectOnAnyMonitor(int x, int y, int w, int h);
 
 Application& Application::Get() {
     static Application instance;
@@ -53,18 +58,65 @@ bool Application::Initialize(HINSTANCE hInst) {
 
     LoadMenuBitmaps();
 
-    // Load saved notes
-    m_notes = Storage::LoadNotes(m_nextId, m_folders);
+    // Load saved notes. If notes.json was partially unparsable, LoadNotes has
+    // already backed up the raw file (notes.json.bak); warn the user so the
+    // partial save that follows doesn't look like silent data loss.
+    bool notesCorrupt = false;
+    m_notes = Storage::LoadNotes(m_nextId, m_folders, notesCorrupt);
+    if (notesCorrupt) {
+        MessageBoxW(nullptr, Ls(L"error.notes_corrupt").c_str(), L"UltraNote",
+                    MB_OK | MB_ICONWARNING);
+    }
 
-    // Create windows for visible notes
+    // Heal nextId and drop duplicate ids: if the stored nextId is <= an existing
+    // note id (corrupted/hand-edited file), CreateNewNote would hand out a
+    // colliding id and clobber a live note (orphaned window, double-delete UAF).
+    {
+        std::unordered_set<uint64_t> seenIds;
+        for (auto it = m_notes.begin(); it != m_notes.end(); ) {
+            uint64_t id = (*it)->id;
+            if (!seenIds.insert(id).second) {
+                it = m_notes.erase(it);   // duplicate id: drop the later note
+                continue;
+            }
+            if (id >= m_nextId) m_nextId = id + 1;
+            ++it;
+        }
+    }
+
+    // Apply saved settings (autosave interval, cascade positions, etc.) BEFORE
+    // creating note windows so off-screen healing below can use the configured
+    // cascade start position. ApplySettings guards its m_noteListWindow uses, so
+    // running it while that window does not yet exist is safe.
+    ApplySettings();
+
+    // Off-screen safety: if a saved note's rectangle no longer intersects any
+    // monitor (display setup changed since last run), move it onto the cascade
+    // position used for new notes — otherwise it would be permanently invisible.
+    // The note list and import already do this; only the normal startup did not.
+    {
+        auto settings = SettingsDialog::LoadFromStorage();
+        for (auto& note : m_notes) {
+            if (!IsRectOnAnyMonitor(note->x, note->y,
+                                     note->width  > 0 ? note->width  : 200,
+                                     note->height > 0 ? note->height : 150)) {
+                note->x = m_cascadeX;
+                note->y = m_cascadeY;
+                m_cascadeX += settings.cascadeStep;
+                m_cascadeY += settings.cascadeStep;
+                if (m_cascadeX > settings.cascadeReset) m_cascadeX = settings.newNoteX;
+                if (m_cascadeY > settings.cascadeReset) m_cascadeY = settings.newNoteY;
+                m_dirty = true;
+            }
+        }
+    }
+
+    // Create windows for visible notes (now at on-screen positions)
     for (auto& note : m_notes) {
         if (!note->isHidden) {
             CreateNoteWindow(note.get());
         }
     }
-
-    // Apply saved settings (autosave interval, cascade positions, etc.)
-    ApplySettings();
 
     // Pre-create the note list window (hidden) so the very first Show() goes
     // through the warm path. Doing the heavy CreateWindowExW + child setup in
@@ -79,9 +131,36 @@ bool Application::Initialize(HINSTANCE hInst) {
     return true;
 }
 
+void Application::RegisterModelessDialog(HWND hwnd) {
+    if (!hwnd) return;
+    for (HWND h : m_modelessDialogs) if (h == hwnd) return;  // no duplicates
+    m_modelessDialogs.push_back(hwnd);
+}
+
+void Application::UnregisterModelessDialog(HWND hwnd) {
+    for (auto it = m_modelessDialogs.begin(); it != m_modelessDialogs.end(); ++it) {
+        if (*it == hwnd) { m_modelessDialogs.erase(it); return; }
+    }
+}
+
 int Application::Run() {
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        // Give each live modeless dialog a chance to consume the message for
+        // keyboard navigation (Tab/arrows/default-button/Esc). IsDialogMessageW
+        // returns TRUE when it handled the message, in which case we must NOT
+        // also Translate/Dispatch it. Iterate a copy: dialog procs invoked from
+        // inside IsDialogMessageW (e.g. Esc -> WM_COMMAND IDCANCEL -> destroy)
+        // can mutate m_modelessDialogs mid-iteration.
+        bool handled = false;
+        if (!m_modelessDialogs.empty()) {
+            std::vector<HWND> snapshot = m_modelessDialogs;
+            for (HWND h : snapshot) {
+                if (IsWindow(h) && IsDialogMessageW(h, &msg)) { handled = true; break; }
+            }
+        }
+        if (handled) continue;
+
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
@@ -90,6 +169,7 @@ int Application::Run() {
 }
 
 void Application::Shutdown() {
+    CommitEditingNotes();   // flush in-progress edits before the save
     SaveAll();
     UnregisterGlobalHotkeys();
     KillTimer(m_hAppWnd, IDT_AUTOSAVE);
@@ -102,6 +182,12 @@ void Application::Shutdown() {
         if (popup && popup->GetHwnd()) DestroyWindow(popup->GetHwnd());
     }
     m_alarmPopups.clear();
+
+    // Destroying popups fires OnAlarmPopupClosed(Dismiss) -> AdvanceAfterFire +
+    // MarkDirty. That happens AFTER the SaveAll above, so persist once more here,
+    // otherwise a once-alarm re-pops on the next start (SaveAll early-outs if not
+    // dirty, so this is cheap when nothing changed).
+    SaveAll();
 
     if (m_trayBubble) {
         m_trayBubble->Destroy();
@@ -137,6 +223,12 @@ void Application::Shutdown() {
 // App window (hidden, receives tray messages)
 // ============================================================================
 
+// Shell broadcast sent when the taskbar (Explorer) (re)starts. Registered at
+// window creation; on receipt we re-add the tray icon. A message-only window
+// would NOT receive this broadcast (nor WM_QUERYENDSESSION), which is why
+// m_hAppWnd is a real — but never-shown — top-level window (see CreateAppWindow).
+static UINT s_taskbarCreatedMsg = 0;
+
 bool Application::CreateAppWindow() {
     WNDCLASSEXW wc = {};
     wc.cbSize        = sizeof(wc);
@@ -145,9 +237,13 @@ bool Application::CreateAppWindow() {
     wc.lpszClassName = APP_WND_CLASS;
     RegisterClassExW(&wc);
 
-    m_hAppWnd = CreateWindowExW(0, APP_WND_CLASS, L"UltraNote",
-                                 0, 0, 0, 0, 0,
-                                 HWND_MESSAGE, nullptr, m_hInst, nullptr);
+    // Real top-level window (not HWND_MESSAGE) so it receives the TaskbarCreated
+    // broadcast after an Explorer restart. Never shown (no WS_VISIBLE, no
+    // ShowWindow); WS_EX_TOOLWINDOW keeps it out of the taskbar / Alt-Tab.
+    s_taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
+    m_hAppWnd = CreateWindowExW(WS_EX_TOOLWINDOW, APP_WND_CLASS, L"UltraNote",
+                                 WS_POPUP, 0, 0, 0, 0,
+                                 nullptr, nullptr, m_hInst, nullptr);
     return m_hAppWnd != nullptr;
 }
 
@@ -156,6 +252,14 @@ LRESULT CALLBACK Application::AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
 }
 
 LRESULT Application::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    // Explorer restarted: re-add the tray icon (re-applies NIM_ADD +
+    // NIM_SETVERSION incl. all tray-bubble prerequisites). Dynamic message id,
+    // so it can't be a switch case.
+    if (msg == s_taskbarCreatedMsg && s_taskbarCreatedMsg != 0) {
+        SetupTrayIcon();
+        return 0;
+    }
+
     switch (msg) {
         case WM_TRAY_CALLBACK: {
             UINT trayMsg = LOWORD(lParam);
@@ -225,6 +329,7 @@ LRESULT Application::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         }
 
         case WM_QUERYENDSESSION:
+            CommitEditingNotes();   // commit edits in flight before the session ends
             SaveAll();
             return TRUE;
 
@@ -391,11 +496,16 @@ void Application::ShowAboutDialog(HWND hParent) {
     *reinterpret_cast<WORD*>(p) = 0; p += sizeof(WORD);
     *reinterpret_cast<WORD*>(p) = 0; p += sizeof(WORD);
 
-    // Title - strip & accelerator prefix
-    const wchar_t* title = Ls(L"menu.about").c_str();
+    // Title - strip & accelerator prefix. Hold the localized string in a local
+    // (not a const wchar_t* to a temporary's c_str()) so it stays alive here.
+    std::wstring titleStr = Ls(L"menu.about");
     std::wstring cleanTitle;
-    for (const wchar_t* t = title; *t; ++t)
-        if (*t != L'&') cleanTitle += *t;
+    for (wchar_t c : titleStr)
+        if (c != L'&') cleanTitle += c;
+    // Bound the title: writeStr/align4 clamp, but the raw DLGITEMTEMPLATE/WORD
+    // writes that follow do NOT — a pathological 2000+ char .lng title could push
+    // p to the buffer end and make those struct writes land out of bounds.
+    if (cleanTitle.size() > 256) cleanTitle.resize(256);
     writeStr(cleanTitle.c_str());
     align4();
 
@@ -601,8 +711,17 @@ NoteWindow* Application::CreateNoteFromClipboard() {
 
     NoteWindow* wnd = CreateNewNote();
     if (wnd) {
-        wnd->GetData()->text = clipText;
+        NoteData* data = wnd->GetData();
+        data->text = clipText;
+        // CreateNewNote applied the initial-text template (incl. a possible
+        // %%p cursor marker); that position is meaningless for pasted text, so
+        // reset it (EnterEditMode then drops the caret at the end). Stamp the
+        // modify time and refresh the list so it shows the pasted text, not the
+        // initial-text placeholder it was populated with a moment ago.
+        data->cursorPos  = -1;
+        data->modifiedAt = static_cast<int64_t>(std::time(nullptr));
         InvalidateRect(wnd->GetHwnd(), nullptr, TRUE);
+        RefreshNoteList();
     }
     return wnd;
 }
@@ -673,6 +792,14 @@ void Application::DeleteNote(uint64_t id) {
     FinalizeDeletions();
 }
 
+void Application::DeleteNotesByIds(const std::vector<uint64_t>& ids) {
+    if (ids.empty()) return;
+    for (uint64_t id : ids) {
+        RemoveNote(id);
+    }
+    FinalizeDeletions();   // single SaveAll + RefreshNoteList + re-show pass
+}
+
 void Application::DeleteSelectedNotes() {
     auto selected = GetSelectedIds();
     if (selected.empty()) return;
@@ -683,7 +810,7 @@ void Application::DeleteSelectedNotes() {
         if (selected.size() == 1) {
             msg = Ls(L"confirm.delete_one");
         } else {
-            msg = FormatString(Ls(L"confirm.delete_multi").c_str(), static_cast<int>(selected.size()));
+            msg = FormatCount(Ls(L"confirm.delete_multi"), static_cast<int>(selected.size()));
         }
 
         HWND ownerWnd = nullptr;
@@ -709,6 +836,19 @@ void Application::SaveAll() {
     if (!m_dirty) return;
     Storage::SaveNotes(m_notes, m_nextId, m_folders);
     m_dirty = false;
+}
+
+void Application::CommitEditingNotes() {
+    // During OS shutdown / logoff / tray-exit the freshly typed text still lives
+    // in the EDIT control: the KILLFOCUS path that normally moves it into
+    // m_data->text never runs. CommitEditText() performs that move; set m_dirty
+    // directly because NotifyChanged()'s posted WM_NOTE_CHANGED won't be pumped.
+    for (auto& [id, wnd] : m_noteWindows) {
+        if (wnd && wnd->IsEditing()) {
+            wnd->CommitEditText();
+            m_dirty = true;
+        }
+    }
 }
 
 NoteData* Application::FindNoteData(uint64_t id) {
@@ -939,14 +1079,6 @@ static bool IsRectOnAnyMonitor(int x, int y, int w, int h) {
 // Safe single-integer placeholder substitution. NEVER passes the (localized,
 // translator-editable) .lng string to the CRT format engine — a wrong specifier
 // there would crash or overflow a fixed buffer.
-static std::wstring FormatCount(const std::wstring& fmt, int count) {
-    size_t pos = fmt.find(L"%d");
-    if (pos == std::wstring::npos) return fmt;
-    std::wstring result = fmt;
-    result.replace(pos, 2, std::to_wstring(count));
-    return result;
-}
-
 // Convert "Filter Label|*.ext|...||" with '|' as separators into a buffer with
 // '\0' separators expected by GetSaveFileName/GetOpenFileName.
 static std::wstring BuildOfnFilter(const std::wstring& src) {
@@ -1301,10 +1433,11 @@ void Application::PrintNoteByIds(HWND owner, const std::vector<uint64_t>& ids) {
         if (ts > 0) {
             time_t t = static_cast<time_t>(ts);
             struct tm tm = {};
-            localtime_s(&tm, &t);
-            wchar_t dbuf[64];
-            wcsftime(dbuf, 64, dateFmt, &tm);
-            meta += dbuf;
+            wchar_t dbuf[64] = {};
+            // Guard localtime_s: a ms- instead of s-timestamp (> year 3000) makes
+            // it fail and would trip the debug-build wcsftime assertion otherwise.
+            if (localtime_s(&tm, &t) == 0 && wcsftime(dbuf, 64, dateFmt, &tm) > 0)
+                meta += dbuf;
         }
 
         int contentWidth = printable.right - printable.left;
@@ -1509,6 +1642,13 @@ void Application::ShowSettingsDialog() {
         m_noteListWindow->SetPreviewPaused(false);
     }
     m_settingsOpen = false;
+
+    // Now that the modal dialog has closed, run any note-list rebuild that a
+    // language change deferred (deferred so it couldn't destroy the dialog owner).
+    if (m_pendingNoteListRebuild) {
+        m_pendingNoteListRebuild = false;
+        RebuildNoteListForLanguage();
+    }
 }
 
 void Application::ApplySettings() {
@@ -1565,9 +1705,19 @@ void Application::ApplySettings() {
     // Register global hotkeys (reuse the data already loaded above)
     RegisterGlobalHotkeys(data);
 
-    // Apply language if changed
+    // Apply language if changed. Swap the string table + settings.ini right away
+    // (harmless — only replaces the in-memory map), but defer the note-list
+    // rebuild while the settings dialog is open: the rebuild reset()s
+    // m_noteListWindow, which owns the modal dialog and would destroy it mid
+    // WM_COMMAND (see ShowSettingsDialog owner choice). Outside the dialog there
+    // is no owner conflict, so rebuild immediately.
     if (data.language != Localization::Get().GetCurrentLanguage()) {
-        ChangeLanguage(data.language);
+        Localization::Get().LoadLanguage(data.language);
+        std::wstring iniPath = GetExeDirectory() + L"\\settings.ini";
+        WritePrivateProfileStringW(L"general", L"language",
+                                    data.language.c_str(), iniPath.c_str());
+        if (m_settingsOpen) m_pendingNoteListRebuild = true;
+        else                RebuildNoteListForLanguage();
     }
 
     // Heal autostart entry: if the setting is on, ensure the Run-key value
@@ -1624,27 +1774,22 @@ void Application::UnregisterGlobalHotkeys() {
     UnregisterHotKey(m_hAppWnd, IDH_GLOBAL_NOTELIST);
 }
 
-void Application::ChangeLanguage(const std::wstring& langCode) {
-    if (langCode == Localization::Get().GetCurrentLanguage()) return;
-
-    // Load new language
-    Localization::Get().LoadLanguage(langCode);
-
-    // Save to settings.ini
-    std::wstring settingsPath = GetExeDirectory() + L"\\settings.ini";
-    WritePrivateProfileStringW(L"general", L"language", langCode.c_str(),
-                                settingsPath.c_str());
-
-    // Update note list window title and menu if open
-    if (m_noteListWindow) {
-        // Destroy and recreate to pick up new strings
-        bool wasVisible = m_noteListWindow->IsVisible();
-        m_noteListWindow.reset();
-        if (wasVisible) {
-            m_noteListWindow = std::make_unique<NoteListWindow>(m_hInst);
-            m_noteListWindow->Create();
-            m_noteListWindow->Show();
-        }
+void Application::RebuildNoteListForLanguage() {
+    // Recreate the note-list window so it picks up the newly loaded strings. The
+    // string table + settings.ini are already updated by the caller; this is kept
+    // as a separate step from the string swap so it can be deferred until an open
+    // settings dialog (owned by this window) has closed — see ApplySettings.
+    if (!m_noteListWindow) return;
+    bool wasVisible = m_noteListWindow->IsVisible();
+    m_noteListWindow.reset();
+    // Always recreate (hidden) so the documented pre-create warm path is
+    // preserved — otherwise the next Show() would do the heavy create in the
+    // activation stack and the title bar would stay inactive. Only the Show()
+    // itself is gated on the previous visibility.
+    m_noteListWindow = std::make_unique<NoteListWindow>(m_hInst);
+    m_noteListWindow->Create();
+    if (wasVisible) {
+        m_noteListWindow->Show();
     }
 }
 
@@ -1697,6 +1842,30 @@ void Application::TriggerAlarm(NoteData& note) {
     if (!note.alarm.has_value()) return;
     const auto& a = *note.alarm;
 
+    // No popup requested: handle the sound-only (and no-popup-no-sound) case here
+    // without ever creating a window. Fire bookkeeping mirrors the Dismiss path
+    // (OnAlarmPopupClosed) so recurring alarms advance/re-schedule identically.
+    if (!a.popup) {
+        if (a.sound) {
+            // One-shot (no SND_LOOP): without a popup there is no Dismiss to stop
+            // a looping sound. File check mirrors AlarmPopupWindow::StartSound.
+            bool played = false;
+            if (!a.soundFile.empty()) {
+                DWORD attrs = GetFileAttributesW(a.soundFile.c_str());
+                if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+                    PlaySoundW(a.soundFile.c_str(), nullptr,
+                               SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
+                    played = true;
+                }
+            }
+            if (!played) MessageBeep(MB_ICONEXCLAMATION);
+        }
+        AlarmScheduler::AdvanceAfterFire(note.alarm.value());
+        MarkDirty();
+        RefreshNoteList();
+        return;
+    }
+
     std::wstring title = note.title;
     if (title.empty()) {
         title = FirstLinesOfText(note.text, 1, 80);
@@ -1719,7 +1888,7 @@ void Application::TriggerAlarm(NoteData& note) {
         while (stackIndex < static_cast<int>(used.size()) && used[stackIndex]) ++stackIndex;
     }
     auto popup = new AlarmPopupWindow(m_hInst, note.id, title, preview,
-                                      a.popup && a.sound, a.soundFile,
+                                      a.sound, a.soundFile,
                                       a.snoozeMinutes, stackIndex);
     if (!popup->Create()) {
         delete popup;
@@ -1794,11 +1963,11 @@ void Application::ShowTrayBubble() {
     std::wstring header = L"UltraNote";
     std::wstring body;
     if (earliest.has_value() && earliestNote) {
-        wchar_t dateBuf[64], timeBuf[32];
-        GetDateFormatW(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &*earliest,
-                       nullptr, dateBuf, 64);
-        GetTimeFormatW(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &*earliest,
-                       nullptr, timeBuf, 32);
+        wchar_t dateBuf[64] = {}, timeBuf[32] = {};
+        if (!GetDateFormatW(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &*earliest,
+                            nullptr, dateBuf, 64)) dateBuf[0] = L'\0';
+        if (!GetTimeFormatW(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &*earliest,
+                            nullptr, timeBuf, 32)) timeBuf[0] = L'\0';
         std::wstring title = earliestNote->title;
         if (title.empty()) {
             // Derive from first non-empty line of note text

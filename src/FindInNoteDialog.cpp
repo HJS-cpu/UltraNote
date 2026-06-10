@@ -1,5 +1,6 @@
 #include "FindInNoteDialog.h"
 #include "NoteWindow.h"
+#include "Application.h"
 #include "Localization.h"
 #include <windowsx.h>
 #include <string>
@@ -65,37 +66,60 @@ bool FindInNoteDialog::Create() {
     RECT rc = { 0, 0, clientW, clientH };
     AdjustWindowRectEx(&rc, style, FALSE, exStyle);
 
-    // Position: next to the owner note, or centered on it
-    int x = CW_USEDEFAULT, y = CW_USEDEFAULT;
     HWND ownerHwnd = m_owner ? m_owner->GetHwnd() : nullptr;
-    if (ownerHwnd) {
-        RECT ownerRc;
-        GetWindowRect(ownerHwnd, &ownerRc);
-        x = ownerRc.right + 8;
-        y = ownerRc.top;
-        // Clamp to work area
-        HMONITOR hMon = MonitorFromWindow(ownerHwnd, MONITOR_DEFAULTTONEAREST);
-        MONITORINFO mi = { sizeof(mi) };
-        if (GetMonitorInfoW(hMon, &mi)) {
-            int winW = rc.right - rc.left;
-            int winH = rc.bottom - rc.top;
-            if (x + winW > mi.rcWork.right)  x = ownerRc.left - winW - 8;
-            if (x < mi.rcWork.left)          x = mi.rcWork.left;
-            if (y + winH > mi.rcWork.bottom) y = mi.rcWork.bottom - winH;
-            if (y < mi.rcWork.top)           y = mi.rcWork.top;
-        }
-    }
-
     m_hwnd = CreateWindowExW(
         exStyle, kClassName, Ls(L"note.find_title").c_str(),
         style,
-        x, y, rc.right - rc.left, rc.bottom - rc.top,
+        CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top,
         ownerHwnd, nullptr, m_hInst, this);
-    return m_hwnd != nullptr;
+    if (!m_hwnd) return false;
+
+    // Route keyboard input through the app loop's IsDialogMessageW so Tab moves
+    // between the edit/checkboxes/buttons, Enter triggers Find Next, and Esc hides.
+    Application::Get().RegisterModelessDialog(m_hwnd);
+
+    // Place it next to the owner note (clamped to that monitor's work area).
+    UpdatePosition();
+    return true;
+}
+
+void FindInNoteDialog::UpdatePosition() {
+    if (!m_hwnd) return;
+    HWND ownerHwnd = m_owner ? m_owner->GetHwnd() : nullptr;
+    if (!ownerHwnd) return;
+
+    RECT wr;
+    GetWindowRect(m_hwnd, &wr);
+    int winW = wr.right - wr.left;
+    int winH = wr.bottom - wr.top;
+
+    RECT ownerRc;
+    GetWindowRect(ownerHwnd, &ownerRc);
+    int x = ownerRc.right + 8;
+    int y = ownerRc.top;
+
+    // Clamp to the owner's monitor work area so the dialog never lands
+    // off-screen (e.g. the note was moved to a screen edge, or the monitor it
+    // used to sit on was disconnected).
+    HMONITOR hMon = MonitorFromWindow(ownerHwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    if (GetMonitorInfoW(hMon, &mi)) {
+        if (x + winW > mi.rcWork.right)  x = ownerRc.left - winW - 8;
+        if (x < mi.rcWork.left)          x = mi.rcWork.left;
+        if (y + winH > mi.rcWork.bottom) y = mi.rcWork.bottom - winH;
+        if (y < mi.rcWork.top)           y = mi.rcWork.top;
+    }
+
+    SetWindowPos(m_hwnd, nullptr, x, y, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 void FindInNoteDialog::ShowAndFocus() {
     if (!m_hwnd) return;
+    // Re-clamp before showing: the note may have moved (or its monitor gone)
+    // since the dialog was last positioned, which would leave it unreachable
+    // (no taskbar button on a WS_EX_TOOLWINDOW popup).
+    UpdatePosition();
     ShowWindow(m_hwnd, SW_SHOWNORMAL);
     SetForegroundWindow(m_hwnd);
     if (m_hEdit) {
@@ -197,6 +221,7 @@ LRESULT CALLBACK FindInNoteDialog::WndProc(HWND hwnd, UINT msg,
 }
 
 LRESULT FindInNoteDialog::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+    HWND hwnd = m_hwnd;   // local copy: m_hwnd is nulled in WM_NCDESTROY below
     switch (msg) {
     case WM_CREATE:
         CreateControls();
@@ -207,6 +232,8 @@ LRESULT FindInNoteDialog::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) 
         int code = HIWORD(wParam);
         if (id == ID_FIND && code == BN_CLICKED)  { OnFindNext();   return 0; }
         if (id == ID_CLOSE && code == BN_CLICKED) { ShowWindow(m_hwnd, SW_HIDE); return 0; }
+        // IDCANCEL: Esc, delivered by IsDialogMessageW (no button owns that id).
+        if (id == IDCANCEL) { ShowWindow(m_hwnd, SW_HIDE); return 0; }
         break;
     }
 
@@ -221,31 +248,35 @@ LRESULT FindInNoteDialog::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) 
         return 0;
 
     case WM_DESTROY:
-        m_hwnd = nullptr;
+        // Remove the edit subclass while m_hEdit is still valid — it was never
+        // removed before, leaking the subclass past window destruction.
+        if (m_hEdit) RemoveWindowSubclass(m_hEdit, EditSubclassProc, EDIT_SUBCLASS_ID);
         return 0;
+
+    case WM_NCDESTROY:
+        Application::Get().UnregisterModelessDialog(hwnd);
+        m_hwnd = nullptr;   // null LAST (not in WM_DESTROY); the captured hwnd
+        break;              // keeps DefWindowProc from getting a null window
     }
-    return DefWindowProcW(m_hwnd, msg, wParam, lParam);
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 LRESULT CALLBACK FindInNoteDialog::EditSubclassProc(
     HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-    UINT_PTR /*subclassId*/, DWORD_PTR refData)
+    UINT_PTR /*subclassId*/, DWORD_PTR /*refData*/)
 {
-    auto* self = reinterpret_cast<FindInNoteDialog*>(refData);
-    if (msg == WM_KEYDOWN) {
-        if (wParam == VK_RETURN) {
-            if (self) self->OnFindNext();
-            return 0;
-        }
-        if (wParam == VK_ESCAPE) {
-            if (self && self->m_hwnd) ShowWindow(self->m_hwnd, SW_HIDE);
-            return 0;
-        }
-    } else if (msg == WM_CHAR && (wParam == VK_RETURN || wParam == VK_ESCAPE)) {
-        // Suppress beep from EDIT default handler
+    // Enter/Esc/Tab are now handled by IsDialogMessageW in the app loop; this
+    // subclass only tames WM_GETDLGCODE and silences the Enter/Esc beep.
+    if (msg == WM_CHAR && (wParam == VK_RETURN || wParam == VK_ESCAPE)) {
+        // Suppress the EDIT default beep for Enter/Esc (handled by the dialog).
         return 0;
     } else if (msg == WM_GETDLGCODE) {
-        return DLGC_WANTALLKEYS;
+        // The dialog is now driven by the app loop's IsDialogMessageW. Claim only
+        // chars + arrows so the edit keeps normal text editing, while Tab (control
+        // navigation), Enter (default Find button) and Esc (IDCANCEL -> hide) fall
+        // through to IsDialogMessageW. Returning DLGC_WANTALLKEYS here would make
+        // IsDialogMessageW feed Tab straight to the edit as a literal 0x09.
+        return DLGC_WANTARROWS | DLGC_WANTCHARS;
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }

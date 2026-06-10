@@ -24,7 +24,10 @@ public:
 private:
     Localization() = default;
 
-    std::unordered_map<std::wstring, std::wstring> m_strings;
+    // mutable: Str() inserts a self-referential fallback entry on a key miss so
+    // it can return a stable map reference instead of a reference to the caller's
+    // temporary key (which would dangle). See Localization.cpp::Str.
+    mutable std::unordered_map<std::wstring, std::wstring> m_strings;
     std::wstring m_langCode = L"en";
 
     void LoadDefaults();

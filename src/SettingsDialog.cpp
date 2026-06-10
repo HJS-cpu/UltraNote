@@ -119,6 +119,14 @@ SettingsData SettingsDialog::LoadFromStorage() {
                                                    s_shortcutDefs[i].defaultHotkey));
     }
 
+    // Clamp values that drive timers / fonts to their UI ranges before they reach
+    // SetTimer / CreateFont. A hand-edited or corrupt settings.json could otherwise
+    // feed e.g. autosave.interval=0 (10 ms save-loop) or a negative font size.
+    auto clampInt = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
+    d.autosaveInterval = clampInt(d.autosaveInterval, 10, 300);    // IDC_AUTOSAVE_SPIN range
+    d.previewDelay     = clampInt(d.previewDelay, 100, 2000);      // IDC_PREVIEW_DELAY_SPIN range
+    d.fontSize         = clampInt(d.fontSize, 6, 72);              // sane point-size bounds
+
     return d;
 }
 
@@ -220,6 +228,7 @@ INT_PTR CALLBACK SettingsDialog::DlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
                     return TRUE;
                 }
 
+                case IDCANCEL:          // Esc / system close — DefDlgProc posts this
                 case IDC_SETTINGS_CANCEL:
                     EndDialog(hwnd, IDCANCEL);
                     return TRUE;
@@ -403,19 +412,19 @@ void SettingsDialog::OnInitDialog(HWND hwnd) {
     int btnY = rc.bottom - btnH - 8;
 
     HWND hOk = CreateWindowExW(0, L"BUTTON", Ls(L"settings.ok").c_str(),
-        WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
         rc.right - 3 * (btnW + 6) - 4, btnY, btnW, btnH,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SETTINGS_OK)),
         nullptr, nullptr);
 
     HWND hCancel = CreateWindowExW(0, L"BUTTON", Ls(L"settings.cancel").c_str(),
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
         rc.right - 2 * (btnW + 6) - 4, btnY, btnW, btnH,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SETTINGS_CANCEL)),
         nullptr, nullptr);
 
     HWND hApply = CreateWindowExW(0, L"BUTTON", Ls(L"settings.apply").c_str(),
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
         rc.right - (btnW + 6) - 4, btnY, btnW, btnH,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SETTINGS_APPLY)),
         nullptr, nullptr);
@@ -453,7 +462,7 @@ void SettingsDialog::CreateTabs(HWND hwnd) {
     GetClientRect(hwnd, &rc);
 
     m_hTab = CreateWindowExW(0, WC_TABCONTROL, L"",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
         4, 4, rc.right - 8, rc.bottom - 40,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SETTINGS_TAB)),
         nullptr, nullptr);
@@ -514,7 +523,7 @@ void SettingsDialog::CreateLayoutTab(HWND hwnd) {
         m_tabControls[0].push_back(hSwatch);
 
         HWND hBtn = CreateWindowExW(0, L"BUTTON", Ls(L"settings.change").c_str(),
-            WS_CHILD | BS_PUSHBUTTON,
+            WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
             x + labelW + swatchW + 8, y, btnW, btnH,
             hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(btnId)),
             nullptr, nullptr);
@@ -541,7 +550,7 @@ void SettingsDialog::CreateLayoutTab(HWND hwnd) {
     m_tabControls[0].push_back(hFontDisplay);
 
     HWND hFontBtn = CreateWindowExW(0, L"BUTTON", Ls(L"settings.change").c_str(),
-        WS_CHILD | BS_PUSHBUTTON,
+        WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
         x + labelW + 158, y, btnW, btnH,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_FONT_BTN)),
         nullptr, nullptr);
@@ -576,7 +585,7 @@ void SettingsDialog::CreateKeyboardTab(HWND hwnd) {
     int listH = 130;
 
     HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
-        WS_CHILD | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
+        WS_CHILD | WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
         x, y, listW, listH,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SHORTCUT_LIST)),
         nullptr, nullptr);
@@ -612,7 +621,7 @@ void SettingsDialog::CreateKeyboardTab(HWND hwnd) {
     m_tabControls[1].push_back(hHkLabel);
 
     HWND hHotkey = CreateWindowExW(0, HOTKEY_CLASS, L"",
-        WS_CHILD | WS_BORDER,
+        WS_CHILD | WS_TABSTOP | WS_BORDER,
         x + 100, y, 130, 23,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SHORTCUT_HOTKEY)),
         nullptr, nullptr);
@@ -623,14 +632,14 @@ void SettingsDialog::CreateKeyboardTab(HWND hwnd) {
     m_tabControls[1].push_back(hHotkey);
 
     HWND hChangeBtn = CreateWindowExW(0, L"BUTTON", Ls(L"settings.sc_apply").c_str(),
-        WS_CHILD | BS_PUSHBUTTON,
+        WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
         x + 238, y, 70, 23,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SHORTCUT_CHANGE)),
         nullptr, nullptr);
     m_tabControls[1].push_back(hChangeBtn);
 
     HWND hDefBtn = CreateWindowExW(0, L"BUTTON", Ls(L"settings.sc_default").c_str(),
-        WS_CHILD | BS_PUSHBUTTON,
+        WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
         x + 314, y, 70, 23,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SHORTCUT_DEFAULT)),
         nullptr, nullptr);
@@ -737,7 +746,11 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     int panelW = tabRc.right - tabRc.left - 8;
     int panelH = tabRc.bottom - tabRc.top - 8;
 
-    m_hGeneralPanel = CreateWindowExW(WS_EX_CLIENTEDGE,
+    // WS_EX_CONTROLPARENT: the dialog manager's Tab navigation only recurses into
+    // child containers that carry this flag — without it the General-tab controls
+    // (which live inside this scroll panel, not directly under the dialog) would be
+    // unreachable by keyboard.
+    m_hGeneralPanel = CreateWindowExW(WS_EX_CLIENTEDGE | WS_EX_CONTROLPARENT,
         L"UltraNoteScrollPanel", L"",
         WS_CHILD | WS_CLIPCHILDREN | WS_VSCROLL,
         panelX, panelY, panelW, panelH,
@@ -788,7 +801,7 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     addGroupHeader(L"settings.group_display");
 
     HWND hPreviewCheck = CreateWindowExW(0, L"BUTTON", Ls(L"settings.preview_enabled").c_str(),
-        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         ix, y, contentW - indent, 18,
         panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_PREVIEW_ENABLED)),
         nullptr, nullptr);
@@ -798,7 +811,7 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     y += rowH;
 
     HWND hLinksCheck = CreateWindowExW(0, L"BUTTON", Ls(L"settings.clickable_links").c_str(),
-        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         ix, y, contentW - indent, 18,
         panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CLICKABLE_LINKS)),
         nullptr, nullptr);
@@ -813,7 +826,7 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     SendMessageW(hDelayLabel, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
 
     HWND hEdit2 = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-        WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_RIGHT,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_NUMBER | ES_RIGHT,
         ix + subIndent + 130, y, editW, 20,
         panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_PREVIEW_DELAY_EDIT)),
         nullptr, nullptr);
@@ -838,7 +851,7 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     addGroupHeader(L"settings.group_delete");
 
     HWND hCheck = CreateWindowExW(0, L"BUTTON", Ls(L"settings.confirm_delete").c_str(),
-        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         ix, y, contentW - indent, 18,
         panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CONFIRM_DELETE)),
         nullptr, nullptr);
@@ -856,7 +869,7 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     SendMessageW(hAutoLabel, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
 
     HWND hEdit1 = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-        WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_RIGHT,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_NUMBER | ES_RIGHT,
         ix + 110, y, editW, 20,
         panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_AUTOSAVE_EDIT)),
         nullptr, nullptr);
@@ -886,7 +899,7 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     SendMessageW(hTrayLabel, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
 
     HWND hCombo1 = CreateWindowExW(0, L"COMBOBOX", L"",
-        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
         ix + 110, y, 160, 120,
         panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_TRAY_DBLCLICK)),
         nullptr, nullptr);
@@ -902,7 +915,7 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
 
     HWND hAutostartCheck = CreateWindowExW(0, L"BUTTON",
         Ls(L"settings.autostart_enabled").c_str(),
-        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         ix, y, contentW - indent, 18,
         panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_AUTOSTART_ENABLED)),
         nullptr, nullptr);
@@ -915,7 +928,7 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
     addGroupHeader(L"settings.language");
 
     HWND hLangCombo = CreateWindowExW(0, L"COMBOBOX", L"",
-        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
         ix, y, 160, 120,
         panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_LANGUAGE)),
         nullptr, nullptr);
@@ -958,7 +971,7 @@ void SettingsDialog::CreateMiscTab(HWND hwnd) {
         m_tabControls[3].push_back(hLabel);
 
         HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-            WS_CHILD | ES_NUMBER | ES_RIGHT,
+            WS_CHILD | WS_TABSTOP | ES_NUMBER | ES_RIGHT,
             x + labelW, y, editW, 22,
             hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(editId)),
             nullptr, nullptr);
@@ -998,7 +1011,7 @@ void SettingsDialog::CreateMiscTab(HWND hwnd) {
     m_tabControls[3].push_back(hLabel);
 
     HWND hCombo = CreateWindowExW(0, L"COMBOBOX", L"",
-        WS_CHILD | CBS_DROPDOWNLIST,
+        WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST,
         x + labelW, y, 160, 120,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_DEFAULT_FOLDER)),
         nullptr, nullptr);
@@ -1015,7 +1028,7 @@ void SettingsDialog::CreateMiscTab(HWND hwnd) {
 
     // Insert button (right-aligned next to label)
     HWND hInsertBtn = CreateWindowExW(0, L"BUTTON", Ls(L"settings.insert_var").c_str(),
-        WS_CHILD | BS_PUSHBUTTON,
+        WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
         x + labelW, y, 100, 22,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_INITIAL_TEXT_INSERT)),
         nullptr, nullptr);
@@ -1026,7 +1039,7 @@ void SettingsDialog::CreateMiscTab(HWND hwnd) {
     int initEditW = labelW + 100;
     int initEditH = 80;
     HWND hInitEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", m_data.initialText.c_str(),
-        WS_CHILD | ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL | WS_VSCROLL,
+        WS_CHILD | WS_TABSTOP | ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL | WS_VSCROLL,
         x, y, initEditW, initEditH,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_INITIAL_TEXT_EDIT)),
         nullptr, nullptr);
@@ -1070,11 +1083,14 @@ void SettingsDialog::UpdateInitialTextPreview() {
 // ============================================================================
 
 void SettingsDialog::CreateNoteListTab(HWND hwnd) {
+    // GetTabDisplayRect already returns parent-client coords; an extra
+    // MapWindowPoints(m_hTab, hwnd, ...) added the tab offset a second time and
+    // pushed every control down-right. Use the rect as-is, with the same +10/+8
+    // insets as the other tabs.
     RECT dr = GetTabDisplayRect(m_hTab);
-    MapWindowPoints(m_hTab, hwnd, reinterpret_cast<POINT*>(&dr), 2);
 
-    int x = dr.left + 12;
-    int y = dr.top + 12;
+    int x = dr.left + 10;
+    int y = dr.top + 8;
     int labelW = 110;
     int comboW = 120;
     int rowH = 26;
@@ -1089,7 +1105,7 @@ void SettingsDialog::CreateNoteListTab(HWND hwnd) {
 
     // Date format combo
     HWND hCombo = CreateWindowExW(0, L"COMBOBOX", nullptr,
-        WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL,
+        WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
         x + labelW + 8, y, comboW, 200,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_DATE_FORMAT)),
         nullptr, nullptr);
@@ -1102,7 +1118,7 @@ void SettingsDialog::CreateNoteListTab(HWND hwnd) {
     // Zebra striping checkbox
     HWND hCheck = CreateWindowExW(0, L"BUTTON",
         Ls(L"settings.zebra_striping").c_str(),
-        WS_CHILD | BS_AUTOCHECKBOX,
+        WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX,
         x, y, 300, 18,
         hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_ZEBRA_STRIPING)),
         nullptr, nullptr);
@@ -1122,6 +1138,28 @@ void SettingsDialog::ShowTab(int index) {
         }
     }
     m_currentTab = index;
+
+    // Move focus onto the first interactive control of the page now shown so the
+    // dialog is keyboard-operable from the moment a tab opens (Tab/Space/arrows).
+    // The General tab nests its controls inside the scroll panel, so descend into
+    // it. Static labels/swatches carry no WS_TABSTOP and are skipped.
+    HWND first = nullptr;
+    for (HWND h : m_tabControls[index]) {
+        // For the General tab the only direct child is the scroll panel; pick its
+        // first tabstop child instead.
+        if (h == m_hGeneralPanel) {
+            for (HWND c = GetWindow(h, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) {
+                if ((GetWindowLongW(c, GWL_STYLE) & WS_TABSTOP) && IsWindowEnabled(c)) {
+                    first = c;
+                    break;
+                }
+            }
+        } else if ((GetWindowLongW(h, GWL_STYLE) & WS_TABSTOP) && IsWindowEnabled(h)) {
+            first = h;
+        }
+        if (first) break;
+    }
+    if (first) SetFocus(first);
 }
 
 // ============================================================================
@@ -1216,6 +1254,19 @@ void SettingsDialog::OnShortcutChange() {
 
     WORD hk = static_cast<WORD>(SendMessageW(hHotkey, HKM_GETHOTKEY, 0, 0));
     if (hk == 0) return;
+
+    // Global hotkeys are registered system-wide via RegisterHotKey. A binding
+    // without Ctrl or Alt (e.g. a bare "N", or Shift+N) would swallow that key
+    // for every application and persist across restarts — refuse it. Per-note
+    // slots are unaffected (Del with no modifier is a valid per-note default).
+    if (sel == SC_GLOBAL_NEWNOTE || sel == SC_GLOBAL_NOTELIST) {
+        BYTE mods = HIBYTE(hk);
+        if (!(mods & (HOTKEYF_CONTROL | HOTKEYF_ALT))) {
+            MessageBoxW(m_hwnd, Ls(L"settings.sc_global_needmod").c_str(),
+                        Ls(L"settings.title").c_str(), MB_OK | MB_ICONWARNING);
+            return;
+        }
+    }
 
     m_data.shortcuts[sel] = hk;
 
@@ -1330,11 +1381,17 @@ void SettingsDialog::ReadFromControls() {
     if (hFolder) {
         int idx = static_cast<int>(SendMessageW(hFolder, CB_GETCURSEL, 0, 0));
         if (idx <= 0) {
-            m_data.defaultFolder.clear();
+            m_data.defaultFolder.clear();   // index 0 is the "(no folder)" entry
         } else {
-            const auto& folders = Application::Get().GetFolders();
-            if (idx - 1 < static_cast<int>(folders.size()))
-                m_data.defaultFolder = folders[idx - 1];
+            // Read the folder NAME straight from the combo, not folders[idx-1]:
+            // a folder created while the dialog was open shifts GetFolders() and
+            // would map the same index onto a different name.
+            int len = static_cast<int>(SendMessageW(hFolder, CB_GETLBTEXTLEN, idx, 0));
+            if (len > 0) {
+                std::wstring name(len, L'\0');
+                SendMessageW(hFolder, CB_GETLBTEXT, idx, reinterpret_cast<LPARAM>(&name[0]));
+                m_data.defaultFolder = name;
+            }
         }
     }
 
@@ -1439,6 +1496,15 @@ void SettingsDialog::ShowInsertVariableMenu() {
 // ============================================================================
 
 void SettingsDialog::RebuildControls() {
+    // Defensive: with the A4 deferral the dialog is no longer destroyed mid-apply,
+    // but never operate on a dead HWND — that would leak the rebuilt icons/fonts.
+    if (!IsWindow(m_hwnd)) return;
+
+    // Remember the active tab before OnInitDialog's trailing ShowTab(0) clobbers
+    // m_currentTab — otherwise a language change always snaps the user back to the
+    // first (Layout) tab even if they triggered it from another page.
+    int savedTab = m_currentTab;
+
     // Destroy all tab-page controls
     for (int t = 0; t < 5; ++t) {
         for (HWND h : m_tabControls[t]) {
@@ -1464,7 +1530,7 @@ void SettingsDialog::RebuildControls() {
     // Rebuild everything with new language strings
     OnInitDialog(m_hwnd);
 
-    // Restore current tab
-    TabCtrl_SetCurSel(m_hTab, m_currentTab);
-    ShowTab(m_currentTab);
+    // Restore the tab the user was on (savedTab, captured before OnInitDialog)
+    TabCtrl_SetCurSel(m_hTab, savedTab);
+    ShowTab(savedTab);
 }

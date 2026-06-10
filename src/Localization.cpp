@@ -70,11 +70,14 @@ void Localization::LoadDefaults() {
     m_strings[L"menu.language"]       = L"&Language";
     m_strings[L"menu.exit"]           = L"E&xit";
 
+    // Configurable shortcuts get their accelerator suffix from AppendShortcutSuffix
+    // at menu-build time; baking a "\t<key>" here would double-tab and misalign the
+    // popup. Only note.edit keeps a hardcoded suffix (Enter is not configurable).
     m_strings[L"note.edit"]           = L"&Edit\tEnter";
-    m_strings[L"note.copy"]           = L"&Copy\tC";
-    m_strings[L"note.delete"]         = L"&Delete\tDel";
+    m_strings[L"note.copy"]           = L"&Copy";
+    m_strings[L"note.delete"]         = L"&Delete";
     m_strings[L"note.hide"]           = L"&Hide";
-    m_strings[L"note.always_on_top"]  = L"Always on &Top\tO";
+    m_strings[L"note.always_on_top"]  = L"Always on &Top";
     m_strings[L"note.new_note"]       = L"&New Note";
 
     m_strings[L"notelist.title"]      = L"UltraNote - Note List";
@@ -91,6 +94,7 @@ void Localization::LoadDefaults() {
     m_strings[L"confirm.delete_multi"] = L"Delete %d notes?";
 
     m_strings[L"app.already_running"] = L"UltraNote is already running.";
+    m_strings[L"error.notes_corrupt"] = L"notes.json appears to be damaged. Only some of your notes could be loaded; the original file has been saved as 'notes.json.bak' so nothing is lost.";
     m_strings[L"note.empty"]          = L"(empty)";
 }
 
@@ -140,6 +144,7 @@ bool Localization::ParseLngFile(const std::wstring& path) {
 
     // Parse line by line
     bool inStringsSection = false;
+    int parsedCount = 0;   // count of key=value pairs actually applied
     std::istringstream stream(content.substr(start));
     std::string line;
 
@@ -193,9 +198,14 @@ bool Localization::ParseLngFile(const std::wstring& path) {
         };
 
         m_strings[toWide(key)] = toWide(value);
+        ++parsedCount;
     }
 
-    return true;
+    // A UTF-16 .lng (or any file whose bytes never decode to a [strings] key=value
+    // pair) used to "succeed" here, leaving the UI English while the language was
+    // marked active — and GetCurrentLanguage's short-circuit then blocked a reload.
+    // Treat "no key applied" as a load failure so the English fallback stays.
+    return parsedCount > 0;
 }
 
 const std::wstring& Localization::Str(const std::wstring& key) const {
@@ -203,8 +213,10 @@ const std::wstring& Localization::Str(const std::wstring& key) const {
     if (it != m_strings.end()) {
         return it->second;
     }
-    // Return key itself if not found
-    return key;
+    // Key miss: insert the key as its own value and return a reference into the
+    // map. Returning `key` directly would alias the caller's temporary (e.g.
+    // Ls(L"...")) and dangle the moment the full expression ends.
+    return m_strings.emplace(key, key).first->second;
 }
 
 std::vector<std::pair<std::wstring, std::wstring>> Localization::GetAvailableLanguages() const {

@@ -71,6 +71,10 @@ bool AlarmPopupWindow::Create() {
                              nullptr, nullptr, m_hInst, this);
     if (!m_hwnd) return false;
 
+    // Enable Tab/Enter/Esc navigation between Open/Snooze/Dismiss via the app
+    // loop's IsDialogMessageW.
+    Application::Get().RegisterModelessDialog(m_hwnd);
+
     ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
     FlashWindow(m_hwnd, TRUE);
     StartSound();
@@ -92,6 +96,7 @@ LRESULT CALLBACK AlarmPopupWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARA
 }
 
 LRESULT AlarmPopupWindow::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
+    HWND hwnd = m_hwnd;   // local copy: stays valid after WM_NCDESTROY's delete this
     switch (msg) {
         case WM_CREATE:
             CreateControls();
@@ -110,17 +115,20 @@ LRESULT AlarmPopupWindow::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_NCDESTROY: {
+            Application::Get().UnregisterModelessDialog(hwnd);
             StopSound();
             if (!m_actionTaken) {
                 Application::Get().OnAlarmPopupClosed(m_noteId, AlarmAction::Dismiss);
                 m_actionTaken = true;
             }
-            SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, 0);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             delete this;
-            return 0;
+            // hwnd is a local copy, valid after delete this; hand WM_NCDESTROY to
+            // DefWindowProc for the final OS-side cleanup.
+            return DefWindowProcW(hwnd, msg, wp, lp);
         }
     }
-    return DefWindowProcW(m_hwnd, msg, wp, lp);
+    return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
 void AlarmPopupWindow::CreateControls() {
@@ -141,7 +149,8 @@ void AlarmPopupWindow::CreateControls() {
 
     y += 26;
     m_hLblText = CreateWindowExW(0, L"STATIC", m_text.c_str(),
-                                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS,
+                                 WS_CHILD | WS_VISIBLE | SS_LEFT,   // no SS_ENDELLIPSIS:
+                                 // that forces a single line and hides the 3-line preview.
                                  kMargin, y, kClientW - 2 * kMargin, 60,
                                  m_hwnd, nullptr, m_hInst, nullptr);
     SendMessageW(m_hLblText, WM_SETFONT, reinterpret_cast<WPARAM>(m_hFontText), TRUE);
@@ -173,6 +182,11 @@ void AlarmPopupWindow::CreateControls() {
     SendMessageW(m_hBtnDismiss, WM_SETFONT, reinterpret_cast<WPARAM>(m_hFontText), TRUE);
 }
 
+// PlaySound is process-wide single-channel: only the popup that currently owns
+// the channel may purge it, else dismissing one stacked popup cuts off another's
+// sound (SND_PURGE would hit the wrong one).
+static AlarmPopupWindow* s_soundOwner = nullptr;
+
 void AlarmPopupWindow::StartSound() {
     if (!m_playSound) return;
     if (!m_soundFile.empty()) {
@@ -181,6 +195,7 @@ void AlarmPopupWindow::StartSound() {
             PlaySoundW(m_soundFile.c_str(), nullptr,
                        SND_FILENAME | SND_ASYNC | SND_LOOP | SND_NODEFAULT);
             m_soundActive = true;
+            s_soundOwner = this;   // we now own the single sound channel
             return;
         }
     }
@@ -189,10 +204,13 @@ void AlarmPopupWindow::StartSound() {
 }
 
 void AlarmPopupWindow::StopSound() {
-    if (m_soundActive) {
+    // Only purge if WE own the channel — a later popup may have taken it over and
+    // purging here would cut off that popup's still-playing sound.
+    if (m_soundActive && s_soundOwner == this) {
         PlaySoundW(nullptr, nullptr, SND_PURGE);
-        m_soundActive = false;
+        s_soundOwner = nullptr;
     }
+    m_soundActive = false;
 }
 
 void AlarmPopupWindow::OnAction(AlarmAction action) {

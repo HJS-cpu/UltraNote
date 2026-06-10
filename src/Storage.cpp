@@ -5,6 +5,8 @@
 #include <cwchar>
 #include <cwctype>
 #include <ctime>
+#include <cstdio>   // _fileno
+#include <io.h>     // _get_osfhandle — flush the temp file to disk before rename
 
 // ============================================================================
 // Range-clamp helpers for untrusted (imported / hand-edited) numeric input.
@@ -13,6 +15,18 @@
 
 static int ClampInt(int64_t v, int lo, int hi) {
     return v < lo ? lo : (v > hi ? hi : static_cast<int>(v));
+}
+
+// Offset past a leading UTF-8 BOM (EF BB BF), else 0. Used by every reader so a
+// BOM-prefixed notes.json / settings.json / .unote still parses instead of
+// failing at Expect(p, '{').
+static size_t Utf8BomOffset(const std::string& s) {
+    if (s.size() >= 3 &&
+        static_cast<unsigned char>(s[0]) == 0xEF &&
+        static_cast<unsigned char>(s[1]) == 0xBB &&
+        static_cast<unsigned char>(s[2]) == 0xBF)
+        return 3;
+    return 0;
 }
 
 // Generous upper bound for a note dimension; falls back when GetSystemMetrics
@@ -58,13 +72,14 @@ static bool StringToSysTime(const std::wstring& s, SYSTEMTIME& st) {
         st.wHour   = static_cast<WORD>(wcstoul(s.substr(11, 2).c_str(), nullptr, 10));
         st.wMinute = static_cast<WORD>(wcstoul(s.substr(14, 2).c_str(), nullptr, 10));
     }
-    // Populate wDayOfWeek via round-trip through FILETIME
+    // Validate + populate wDayOfWeek via a FILETIME round-trip. SystemTimeToFileTime
+    // rejects out-of-range fields (month 99, day 99, hour 99, ...), so a malformed
+    // stored time fails here instead of being accepted as a garbage SYSTEMTIME.
     FILETIME ft;
     SYSTEMTIME normalized = st;
-    if (SystemTimeToFileTime(&normalized, &ft)) {
-        FileTimeToSystemTime(&ft, &normalized);
-        st.wDayOfWeek = normalized.wDayOfWeek;
-    }
+    if (!SystemTimeToFileTime(&normalized, &ft)) return false;
+    FileTimeToSystemTime(&ft, &normalized);
+    st.wDayOfWeek = normalized.wDayOfWeek;
     return st.wYear != 0;
 }
 
@@ -184,14 +199,8 @@ bool Storage::SaveNotes(const std::vector<std::unique_ptr<NoteData>>& notes, uin
     std::wstring filePath = GetNotesFilePath();
     std::wstring tmpPath = filePath + L".tmp";
 
-    // Write to temp file
-    std::wofstream ofs(tmpPath, std::ios::out | std::ios::trunc);
-    if (!ofs.is_open()) return false;
-
-    // Write BOM for UTF-16... actually let's use UTF-8
-    ofs.close();
-
-    // Write as UTF-8
+    // Write as UTF-8 to the temp file (the dead wofstream pre-open that used to
+    // sit here created the .tmp twice and left it behind on the error paths).
     FILE* fp = nullptr;
     if (_wfopen_s(&fp, tmpPath.c_str(), L"wb") != 0 || !fp)
         return false;
@@ -200,7 +209,7 @@ bool Storage::SaveNotes(const std::vector<std::unique_ptr<NoteData>>& notes, uin
     int utf8Len = WideCharToMultiByte(CP_UTF8, 0, json.c_str(),
                                        static_cast<int>(json.size()),
                                        nullptr, 0, nullptr, nullptr);
-    if (utf8Len <= 0) { fclose(fp); return false; }
+    if (utf8Len <= 0) { fclose(fp); DeleteFileW(tmpPath.c_str()); return false; }
 
     std::string utf8(static_cast<size_t>(utf8Len), '\0');
     WideCharToMultiByte(CP_UTF8, 0, json.c_str(),
@@ -208,12 +217,17 @@ bool Storage::SaveNotes(const std::vector<std::unique_ptr<NoteData>>& notes, uin
                         &utf8[0], utf8Len, nullptr, nullptr);
 
     size_t written = fwrite(utf8.data(), 1, utf8.size(), fp);
+    // Flush to disk before the rename so a power loss can't leave a zero-byte or
+    // partial notes.json (USB-stick scenario).
+    fflush(fp);
+    FlushFileBuffers(reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(fp))));
     fclose(fp);
 
-    if (written != utf8.size()) return false;
+    if (written != utf8.size()) { DeleteFileW(tmpPath.c_str()); return false; }
 
-    // Atomic rename
-    if (!MoveFileExW(tmpPath.c_str(), filePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+    // Atomic, write-through rename
+    if (!MoveFileExW(tmpPath.c_str(), filePath.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         DeleteFileW(tmpPath.c_str());
         return false;
     }
@@ -274,14 +288,7 @@ bool Storage::ImportNotes(const std::wstring& path,
     if (got == 0) return false;
     if (got != static_cast<size_t>(fileSize)) utf8.resize(got);
 
-    // Strip UTF-8 BOM if present
-    size_t bomOffset = 0;
-    if (utf8.size() >= 3 &&
-        static_cast<unsigned char>(utf8[0]) == 0xEF &&
-        static_cast<unsigned char>(utf8[1]) == 0xBB &&
-        static_cast<unsigned char>(utf8[2]) == 0xBF) {
-        bomOffset = 3;
-    }
+    size_t bomOffset = Utf8BomOffset(utf8);
 
     int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str() + bomOffset,
                                        static_cast<int>(utf8.size() - bomOffset),
@@ -480,6 +487,17 @@ bool Storage::SkipValue(const wchar_t*& p) {
         while (*p && depth > 0) {
             if (*p == L'[') ++depth;
             else if (*p == L']') --depth;
+            else if (*p == L'"') {
+                // Skip strings whole so a ']' inside one (e.g. ["a]b"]) doesn't
+                // end the array early — mirrors the object branch above.
+                ++p; // skip opening quote
+                while (*p && *p != L'"') {
+                    if (*p == L'\\' && *(p + 1)) ++p; // skip escaped char
+                    ++p;
+                }
+                if (*p == L'"') ++p; // skip closing quote
+                continue;
+            }
             if (depth > 0) ++p;
         }
         if (*p == L']') ++p;
@@ -618,10 +636,12 @@ bool Storage::ParseAlarmObject(const wchar_t*& p, AlarmConfig& alarm) {
 
         if (key == L"kind") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.kind = static_cast<AlarmKind>(val);
+            alarm.kind = static_cast<AlarmKind>(ClampInt(val, 0, 7));
         } else if (key == L"startTime") {
             std::wstring val; if (!ParseString(p, val)) return false;
-            StringToSysTime(val, alarm.startTime);
+            // Invalid stored time (e.g. month 99): pause the alarm instead of
+            // firing on a garbage SYSTEMTIME — and don't fail the whole parse.
+            if (!StringToSysTime(val, alarm.startTime)) alarm.paused = true;
         } else if (key == L"intervalDays") {
             int64_t val; if (!ParseInt(p, val)) return false;
             alarm.intervalDays = ClampInt(val, 1, 365);
@@ -642,13 +662,13 @@ bool Storage::ParseAlarmObject(const wchar_t*& p, AlarmConfig& alarm) {
             alarm.quarterDay = ClampInt(val, 1, 90);
         } else if (key == L"endKind") {
             int64_t val; if (!ParseInt(p, val)) return false;
-            alarm.endKind = static_cast<AlarmEndKind>(val);
+            alarm.endKind = static_cast<AlarmEndKind>(ClampInt(val, 0, 2));
         } else if (key == L"endCount") {
             int64_t val; if (!ParseInt(p, val)) return false;
             alarm.endCount = ClampInt(val, 1, 100000);
         } else if (key == L"endDate") {
             std::wstring val; if (!ParseString(p, val)) return false;
-            StringToSysTime(val, alarm.endDate);
+            if (!StringToSysTime(val, alarm.endDate)) alarm.paused = true;
         } else if (key == L"popup") {
             if (!ParseBool(p, alarm.popup)) return false;
         } else if (key == L"sound") {
@@ -739,9 +759,11 @@ bool Storage::ParseNotes(const std::wstring& json, std::vector<std::unique_ptr<N
 }
 
 std::vector<std::unique_ptr<NoteData>> Storage::LoadNotes(uint64_t& outNextId,
-                                                            std::vector<std::wstring>& outFolders) {
+                                                            std::vector<std::wstring>& outFolders,
+                                                            bool& outCorrupt) {
     std::vector<std::unique_ptr<NoteData>> notes;
     outNextId = 1;
+    outCorrupt = false;
 
     std::wstring filePath = GetNotesFilePath();
 
@@ -761,18 +783,27 @@ std::vector<std::unique_ptr<NoteData>> Storage::LoadNotes(uint64_t& outNextId,
     fclose(fp);
     if (got != static_cast<size_t>(fileSize)) utf8.resize(got);
 
-    // Convert UTF-8 to wstring
-    int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(),
-                                       static_cast<int>(utf8.size()),
+    // Convert UTF-8 to wstring (skip a leading BOM if present)
+    size_t bom = Utf8BomOffset(utf8);
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str() + bom,
+                                       static_cast<int>(utf8.size() - bom),
                                        nullptr, 0);
     if (wideLen <= 0) return notes;
 
     std::wstring json(static_cast<size_t>(wideLen), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(),
-                        static_cast<int>(utf8.size()),
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str() + bom,
+                        static_cast<int>(utf8.size() - bom),
                         &json[0], wideLen);
 
-    ParseNotes(json, notes, outNextId, outFolders);
+    if (!ParseNotes(json, notes, outNextId, outFolders)) {
+        // notes.json is malformed past some point; ParseNotes still filled
+        // `notes` with everything up to the error. Back up the raw original
+        // before the app's first SaveNotes overwrites it with the partial set,
+        // so the unparsed remainder isn't lost permanently. fFailIfExists=TRUE
+        // preserves an earlier backup (the first one is the most valuable).
+        CopyFileW(filePath.c_str(), (filePath + L".bak").c_str(), TRUE);
+        outCorrupt = true;
+    }
     return notes;
 }
 
@@ -796,13 +827,14 @@ static std::wstring ReadSettingsFile() {
     fclose(fp);
     if (got != static_cast<size_t>(fileSize)) utf8.resize(got);
 
-    int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(),
-                                       static_cast<int>(utf8.size()), nullptr, 0);
+    size_t bom = Utf8BomOffset(utf8);
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str() + bom,
+                                       static_cast<int>(utf8.size() - bom), nullptr, 0);
     if (wideLen <= 0) return {};
 
     std::wstring json(static_cast<size_t>(wideLen), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(),
-                        static_cast<int>(utf8.size()), &json[0], wideLen);
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str() + bom,
+                        static_cast<int>(utf8.size() - bom), &json[0], wideLen);
     return json;
 }
 
@@ -897,10 +929,13 @@ static bool WriteSettingsFile(const std::wstring& json) {
         return false;
 
     size_t written = fwrite(utf8.data(), 1, utf8.size(), fp);
+    fflush(fp);
+    FlushFileBuffers(reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(fp))));
     fclose(fp);
-    if (written != utf8.size()) return false;
+    if (written != utf8.size()) { DeleteFileW(tmpPath.c_str()); return false; }
 
-    if (!MoveFileExW(tmpPath.c_str(), filePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+    if (!MoveFileExW(tmpPath.c_str(), filePath.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         DeleteFileW(tmpPath.c_str());
         return false;
     }
@@ -915,12 +950,12 @@ static std::wstring BuildSettingsJson(const std::map<std::wstring, int>& intSett
     size_t i = 0;
 
     for (auto& [key, val] : intSettings) {
-        json += L"  \"" + key + L"\": " + std::to_wstring(val);
+        json += L"  \"" + Storage::EscapeJsonString(key) + L"\": " + std::to_wstring(val);
         if (++i < total) json += L",";
         json += L"\n";
     }
     for (auto& [key, val] : strSettings) {
-        json += L"  \"" + key + L"\": \"" + Storage::EscapeJsonString(val) + L"\"";
+        json += L"  \"" + Storage::EscapeJsonString(key) + L"\": \"" + Storage::EscapeJsonString(val) + L"\"";
         if (++i < total) json += L",";
         json += L"\n";
     }

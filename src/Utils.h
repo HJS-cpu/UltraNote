@@ -47,6 +47,27 @@ inline std::wstring FormatString(const wchar_t* fmt, ...) {
     return result;
 }
 
+// Safe placeholder substitution for LOCALIZED format strings. A wrong specifier
+// in a translation (e.g. %s where %d was meant, or a huge field width) must never
+// reach a printf — it would crash or overflow. These do a literal find+replace of
+// the first placeholder instead. Hardcoded format literals may still use
+// FormatString; .lng-sourced strings MUST go through these.
+inline std::wstring FormatCount(const std::wstring& fmt, int count) {
+    size_t pos = fmt.find(L"%d");
+    if (pos == std::wstring::npos) return fmt;
+    std::wstring result = fmt;
+    result.replace(pos, 2, std::to_wstring(count));
+    return result;
+}
+
+inline std::wstring FormatStr(const std::wstring& fmt, const std::wstring& value) {
+    size_t pos = fmt.find(L"%s");
+    if (pos == std::wstring::npos) return fmt;
+    std::wstring result = fmt;
+    result.replace(pos, 2, value);
+    return result;
+}
+
 // Create an HFONT from font parameters
 inline HFONT CreateFontFromParams(const std::wstring& face, int sizePts,
                                   bool bold, bool italic, HDC hdc = nullptr) {
@@ -137,12 +158,13 @@ inline bool MatchesShortcut(WORD shortcut, WPARAM vk) {
     bool hasShift  = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     bool hasAlt    = (GetKeyState(VK_MENU) & 0x8000) != 0;
     // AltGr (common on non-US layouts) is delivered as synthetic left-Ctrl +
-    // right-Alt. Don't let it satisfy a real Ctrl requirement, or rebound
-    // Ctrl+Alt+letter shortcuts would fire while the user just types AltGr chars.
+    // right-Alt. It must satisfy NEITHER a Ctrl nor an Alt requirement, else
+    // typing an AltGr char (e.g. AltGr+E for €) would fire a bound Ctrl+letter
+    // OR Alt+letter shortcut. Clear both so AltGr chords never match a binding.
     bool rAltDown  = (GetKeyState(VK_RMENU)    & 0x8000) != 0;
     bool lCtrlDown = (GetKeyState(VK_LCONTROL) & 0x8000) != 0;
     bool rCtrlDown = (GetKeyState(VK_RCONTROL) & 0x8000) != 0;
-    if (rAltDown && lCtrlDown && !rCtrlDown) hasCtrl = false;  // AltGr, not real Ctrl
+    if (rAltDown && lCtrlDown && !rCtrlDown) { hasCtrl = false; hasAlt = false; }  // AltGr
     return (needCtrl == hasCtrl) && (needShift == hasShift) && (needAlt == hasAlt);
 }
 
@@ -170,7 +192,26 @@ inline std::wstring FormatShortcut(WORD hotkey) {
         default:
             if (vk >= 'A' && vk <= 'Z')      s += static_cast<wchar_t>(vk);
             else if (vk >= '0' && vk <= '9') s += static_cast<wchar_t>(vk);
-            else                              s += L"?";
+            else {
+                // Navigation/OEM keys (Home, End, Insert, arrows, ;, /, etc.) have
+                // no fixed glyph — ask the OS for the localized key name instead of
+                // rendering "?". Build the GetKeyNameTextW lParam from the scan code
+                // (bits 16-23) and set the extended-key flag (bit 24) for keys whose
+                // scan codes are shared with the numpad (nav cluster, arrows, etc.).
+                UINT sc = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
+                bool extended =
+                    vk == VK_INSERT || vk == VK_DELETE || vk == VK_HOME ||
+                    vk == VK_END    || vk == VK_PRIOR  || vk == VK_NEXT ||
+                    vk == VK_LEFT   || vk == VK_RIGHT  || vk == VK_UP   ||
+                    vk == VK_DOWN   || vk == VK_DIVIDE || vk == VK_NUMLOCK;
+                LONG lparam = static_cast<LONG>(sc << 16);
+                if (extended) lparam |= (1 << 24);  // KF_EXTENDED in lParam position
+                wchar_t name[64] = {};
+                if (sc != 0 && GetKeyNameTextW(lparam, name, _countof(name)) > 0)
+                    s += name;
+                else
+                    s += L"?";
+            }
             break;
     }
     return s;
@@ -347,12 +388,21 @@ inline std::vector<UrlSpan> FindUrls(const std::wstring& text) {
 
 // Get the directory containing the running EXE
 inline std::wstring GetExeDirectory() {
-    wchar_t path[MAX_PATH];
-    DWORD len = GetModuleFileNameW(nullptr, path, MAX_PATH);
-    if (len == 0) return L".";
-    std::wstring dir(path, len);
-    auto pos = dir.find_last_of(L"\\/");
-    if (pos != std::wstring::npos)
-        dir = dir.substr(0, pos);
-    return dir;
+    // Grow the buffer until the full path fits — GetModuleFileNameW returns the
+    // buffer size (not the real length) on truncation. A path >= MAX_PATH would
+    // otherwise silently truncate and the app would read/write its files in the
+    // wrong directory (start empty, saves fail).
+    std::wstring buf(MAX_PATH, L'\0');
+    for (;;) {
+        DWORD len = GetModuleFileNameW(nullptr, &buf[0], static_cast<DWORD>(buf.size()));
+        if (len == 0) return L".";
+        if (len < buf.size()) {
+            buf.resize(len);
+            auto pos = buf.find_last_of(L"\\/");
+            if (pos != std::wstring::npos) buf.resize(pos);
+            return buf;
+        }
+        if (buf.size() >= 32768) return L".";   // NT path limit; give up
+        buf.resize(buf.size() * 2);
+    }
 }

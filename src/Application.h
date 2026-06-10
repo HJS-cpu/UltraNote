@@ -29,6 +29,10 @@ public:
     NoteWindow* CreateNoteFromClipboard();
     void        RequestDeleteNote(uint64_t id);
     void        DeleteNote(uint64_t id);       // Delete without confirmation
+    // Bulk delete (no confirmation): removes each id, then runs a single
+    // SaveAll + RefreshNoteList + re-show pass. Callers that already confirmed
+    // (e.g. the note list's own dialog) use this to avoid N file writes/refreshes.
+    void        DeleteNotesByIds(const std::vector<uint64_t>& ids);
     void        DeleteSelectedNotes();
     void        MarkDirty();
     void        SaveAll();
@@ -97,6 +101,13 @@ public:
     void CheckDueAlarms();
     void OnAlarmPopupClosed(uint64_t noteId, AlarmAction action);
 
+    // Modeless-dialog keyboard support: the message loop (Run) routes each message
+    // through IsDialogMessageW for every registered HWND so Tab/arrows/Enter/Esc
+    // work inside the alarm config/popup and find-in-note dialogs (none of which
+    // run their own DialogBox pump). Each dialog (un)registers its own HWND.
+    void RegisterModelessDialog(HWND hwnd);
+    void UnregisterModelessDialog(HWND hwnd);
+
     HINSTANCE GetInstance() const { return m_hInst; }
     bool      AreClickableLinksEnabled() const { return m_clickableLinks; }
     COLORREF  GetSearchHighlightColor() const { return m_searchHlColor; }
@@ -115,7 +126,12 @@ private:
     void RemoveTrayIcon();
     void ShowTrayMenu();
     void LoadMenuBitmaps();
-    void ChangeLanguage(const std::wstring& langCode);
+    // Rebuild the note-list window after a language change (recreated to pick up
+    // the new strings). Deferred until any open settings dialog has closed.
+    void RebuildNoteListForLanguage();
+    // Flush every note currently in edit mode into its data + mark dirty, so OS
+    // shutdown / end-session / tray-exit can't drop unsaved edits.
+    void CommitEditingNotes();
 
     static LRESULT CALLBACK AppWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -142,6 +158,10 @@ private:
     bool     m_clickableLinks = true;
     COLORREF m_searchHlColor  = RGB(255, 165, 0);
     bool     m_settingsOpen  = false;
+    // Language changed while the settings dialog was open: defer the note-list
+    // rebuild until the dialog closes (the dialog is owned by the note list, so
+    // reset()ing it mid-dialog would destroy the dialog). See ApplySettings.
+    bool     m_pendingNoteListRebuild = false;
     int      m_cascadeX     = 100;
     int      m_cascadeY     = 100;
 
@@ -154,6 +174,10 @@ private:
 
     // Active alarm popups (keyed by note id, one per note)
     std::unordered_map<uint64_t, AlarmPopupWindow*> m_alarmPopups;
+
+    // HWNDs of live modeless dialogs to feed through IsDialogMessageW in Run().
+    // Small (rarely more than a handful); a flat vector keeps iteration trivial.
+    std::vector<HWND> m_modelessDialogs;
 
     // Re-fire throttle: note id -> last fired occurrence-minute (naive secs/60).
     // Stops the 30s timer double-firing within a minute and re-popping after a

@@ -34,10 +34,17 @@ private:
     SIZE MeasureContent() const;
     void BuildRegion(int bubbleW, int bubbleH, TailSide side, int tailCenter);
 
+    // DPI helpers. Pixel constants are authored at 96 dpi; ScaleDpi maps them
+    // to m_dpi (the bubble monitor's effective DPI). EnsureFontsForDpi rebuilds
+    // the fonts via SystemParametersInfoForDpi when the target DPI changed.
+    int  ScaleDpi(int px) const { return MulDiv(px, m_dpi, 96); }
+    void EnsureFontsForDpi(UINT dpi);
+
     HINSTANCE m_hInst        = nullptr;
     HWND      m_hwnd         = nullptr;
     HFONT     m_hFontBold    = nullptr;
     HFONT     m_hFontRegular = nullptr;
+    UINT      m_dpi          = 96;   // Bubble monitor DPI; fonts/metrics track this
 
     std::wstring m_header;
     std::wstring m_body;

@@ -122,6 +122,7 @@ confirm.delete_one=Delete this note?
 confirm.delete_multi=Delete %d notes?
 
 app.already_running=UltraNote is already running.
+error.notes_corrupt=notes.json appears to be damaged. Only some of your notes could be loaded; the original file has been saved as 'notes.json.bak' so nothing is lost.
 hotkey.register_failed=A global hotkey could not be registered (already in use by another program).
 note.empty=(empty)
 note.untitled=(Untitled)
@@ -159,6 +160,7 @@ settings.sc_ontop=Always on Top
 settings.sc_hide=Hide
 settings.sc_global_new=New Note (Global)
 settings.sc_global_list=Note List (Global)
+settings.sc_global_needmod=A global hotkey must include Ctrl or Alt (a key without one — or with Shift only — would hijack that key system-wide).
 
 settings.group_display=Display
 settings.group_delete=Delete

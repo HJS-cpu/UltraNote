@@ -66,10 +66,17 @@ NoteWindow::NoteWindow(NoteData* data, HINSTANCE hInst)
         SetRectEmpty(&ti.rect);
         SendMessageW(m_hTooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
         SendMessageW(m_hTooltip, TTM_SETMAXTIPWIDTH, 0, 500);
+        // Seed the tracking rect for notes that load with the attachment bar
+        // already shown (no WM_SIZE may precede the first hover).
+        UpdateTooltip();
     }
 }
 
 NoteWindow::~NoteWindow() {
+    // Tear down the edit control + its font if destroyed mid-edit (e.g. deleted
+    // from the note list while editing) — otherwise the HFONT and the EDIT
+    // subclass leak. m_hwnd is still alive here, which ExitEditMode needs.
+    if (m_inEditMode && m_hEditCtrl) ExitEditMode(false);
     DestroyAttachmentIcons();
     if (m_hEditBrush) {
         DeleteObject(m_hEditBrush);
@@ -132,6 +139,12 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             int y = GET_Y_LPARAM(lParam);
             bool ctrlHeld = (wParam & MK_CONTROL) != 0;
 
+            // Clear any stale pending URL click from a previous press whose
+            // button-up never reached us (e.g. capture stolen). Otherwise the
+            // next WM_LBUTTONUP would take the URL branch and swallow the
+            // EndDrag/EndResize, leaving the note stuck to the cursor.
+            m_pendingUrlClick = -1;
+
             // Check if click is in attachment bar (works even in edit mode)
             if (m_data->showAttachments && !m_data->attachments.empty()) {
                 int attachIdx = AttachmentHitTest(x, y);
@@ -163,9 +176,11 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                         Application::Get().SelectNote(m_data->id, true);
                     }
                 } else {
-                    // Simple click: clear multi-selection, don't select this note
-                    // Selection indicator (dashed border) is only for Ctrl+Click multi-select
-                    Application::Get().ClearSelection();
+                    // Simple click: clear multi-selection only when dragging an
+                    // UNselected note. Dragging a note that is part of the current
+                    // selection must keep the group intact so MoveSelectedNotes
+                    // moves all of them (clearing here would make it dead code).
+                    if (!m_selected) Application::Get().ClearSelection();
                     StartDrag(x, y);
                 }
             }
@@ -228,6 +243,21 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             int x = GET_X_LPARAM(lParam);
             int y = GET_Y_LPARAM(lParam);
 
+            // An in-progress drag/resize always wins over a pending URL click:
+            // finish it first so the note can't stay stuck to the cursor.
+            if (m_dragging) {
+                m_pendingUrlClick = -1;
+                UpdateDrag(x, y);
+                EndDrag();
+                return 0;
+            }
+            if (m_resizing) {
+                m_pendingUrlClick = -1;
+                UpdateResize(x, y);
+                EndResize();
+                return 0;
+            }
+
             // Handle pending URL click (set in WM_LBUTTONDOWN)
             if (m_pendingUrlClick >= 0) {
                 int urlIdx = m_pendingUrlClick;
@@ -239,13 +269,7 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
 
-            if (m_dragging) {
-                UpdateDrag(x, y);
-                EndDrag();
-            } else if (m_resizing) {
-                UpdateResize(x, y);
-                EndResize();
-            } else if (m_data->showAttachments) {
+            if (m_data->showAttachments) {
                 // Single click on attachment opens file
                 int attachIdx = AttachmentHitTest(x, y);
                 if (attachIdx >= 0) {
@@ -311,16 +335,27 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
 
-            // Configurable shortcuts from settings. Skip the settings load for
-            // plain navigation/typing keys; VK_DELETE is allowed through because
-            // SC_DELETE defaults to plain Del (no modifier).
-            if (!(GetKeyState(VK_CONTROL) & 0x8000) &&
-                !(GetKeyState(VK_MENU) & 0x8000) &&
-                wParam != VK_DELETE) {
-                break;
-            }
+            // Configurable shortcuts from settings (display mode only — we already
+            // broke out above when in edit mode). Cheap fast-path: if any of
+            // Ctrl/Alt/Shift is held the binding may apply, so load and match.
+            // Otherwise the key only matters if it is the VK of a no-modifier
+            // rebind — load once (settings cache makes this cheap) and check the
+            // configured VKs against wParam, so e.g. Shift+H or a bare-key rebind
+            // fires while plain navigation keys still skip the work.
             {
+                bool modDown = (GetKeyState(VK_CONTROL) & 0x8000) ||
+                               (GetKeyState(VK_MENU)    & 0x8000) ||
+                               (GetKeyState(VK_SHIFT)   & 0x8000);
+
                 auto settings = SettingsDialog::LoadFromStorage();
+
+                if (!modDown) {
+                    bool isSlotVk =
+                        LOBYTE(settings.shortcuts[SC_DELETE])        == static_cast<BYTE>(wParam) ||
+                        LOBYTE(settings.shortcuts[SC_ALWAYS_ON_TOP]) == static_cast<BYTE>(wParam) ||
+                        LOBYTE(settings.shortcuts[SC_HIDE])          == static_cast<BYTE>(wParam);
+                    if (!isSlotVk) break;
+                }
 
                 if (MatchesShortcut(settings.shortcuts[SC_DELETE], wParam)) {
                     HWND appWnd = FindWindowW(L"UltraNoteApp", L"UltraNote");
@@ -373,8 +408,29 @@ LRESULT NoteWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             LayoutEditCtrl();
             // Repaint entire window (attachment bar moves with bottom edge)
             InvalidateRect(m_hwnd, nullptr, TRUE);
+            // Keep the attachment tooltip's tracking rect in sync with the bar.
+            UpdateTooltip();
             return 0;
         }
+
+        case WM_CAPTURECHANGED:
+        case WM_CANCELMODE:
+            // Capture can be revoked asynchronously (e.g. Alt+Tab while dragging,
+            // or a dialog appearing) without a WM_LBUTTONUP. Without this the
+            // flags stay true and the note snaps to the cursor on the next mouse
+            // move. EndDrag/EndResize clear the flags before releasing capture,
+            // so the WM_CAPTURECHANGED they cause re-enters here as a no-op.
+            if (m_dragging || m_resizing) {
+                m_dragging  = false;
+                m_resizing  = false;
+                // WM_CANCELMODE asks us to abort the modal loop; capture is not
+                // yet gone (unlike WM_CAPTURECHANGED), so release it explicitly.
+                if (msg == WM_CANCELMODE) ReleaseCapture();
+                SyncDataFromWindow();
+                NotifyChanged();
+            }
+            m_pendingUrlClick = -1;
+            return 0;
 
         case WM_DESTROY:
             return 0;
@@ -472,12 +528,20 @@ void NoteWindow::PaintText(HDC hdc, const RECT& rc) {
         rc.bottom - TEXT_PADDING - abHeight
     };
 
+    // Scan for URLs once and hand the result to PaintTextWithLinks, which used to
+    // re-run FindUrls over the whole text (doubling the per-paint scan). Skip the
+    // scan entirely on the pure fast path (links off and no highlight); otherwise
+    // pass the full span list so the link path still underlines URLs when only a
+    // highlight is active, exactly as before — the links setting gates the branch
+    // decision, not the scan.
     bool linksEnabled = Application::Get().AreClickableLinksEnabled();
-    bool hasUrls = linksEnabled && !FindUrls(m_data->text).empty();
     bool hasHighlight = !Application::Get().GetSearchHighlight().empty();
+    std::vector<UrlSpan> urls;
+    if (linksEnabled || hasHighlight) urls = FindUrls(m_data->text);
+    bool hasUrls = linksEnabled && !urls.empty();
 
     if (hasUrls || hasHighlight) {
-        PaintTextWithLinks(hdc, textRc);
+        PaintTextWithLinks(hdc, textRc, urls);
     } else {
         // Fast path: DrawTextW with DT_EDITCONTROL matches EDIT control rendering
         // exactly, avoiding sub-pixel drift between edit and view modes.
@@ -490,11 +554,11 @@ void NoteWindow::PaintText(HDC hdc, const RECT& rc) {
     DeleteObject(hFont);
 }
 
-void NoteWindow::PaintTextWithLinks(HDC hdc, const RECT& textRc) {
+void NoteWindow::PaintTextWithLinks(HDC hdc, const RECT& textRc,
+                                    const std::vector<UrlSpan>& urls) {
     m_urlRects.clear();
 
     const std::wstring& text = m_data->text;
-    std::vector<UrlSpan> urls = FindUrls(text);
 
     // Lowercase copy of text for case-insensitive highlight matching
     const std::wstring& hlTerm = Application::Get().GetSearchHighlight();
@@ -892,17 +956,23 @@ void NoteWindow::EnterEditMode() {
     InvalidateRect(m_hwnd, nullptr, TRUE);
 }
 
+void NoteWindow::CommitEditText() {
+    if (!m_inEditMode || !m_hEditCtrl) return;
+
+    int len = GetWindowTextLengthW(m_hEditCtrl);
+    std::wstring text(static_cast<size_t>(len), L'\0');
+    if (len > 0)
+        GetWindowTextW(m_hEditCtrl, &text[0], len + 1);
+    m_data->text = std::move(text);
+    m_data->modifiedAt = static_cast<int64_t>(std::time(nullptr));
+    NotifyChanged();
+}
+
 void NoteWindow::ExitEditMode(bool save) {
     if (!m_inEditMode || !m_hEditCtrl) return;
 
     if (save) {
-        int len = GetWindowTextLengthW(m_hEditCtrl);
-        std::wstring text(static_cast<size_t>(len), L'\0');
-        if (len > 0)
-            GetWindowTextW(m_hEditCtrl, &text[0], len + 1);
-        m_data->text = std::move(text);
-        m_data->modifiedAt = static_cast<int64_t>(std::time(nullptr));
-        NotifyChanged();
+        CommitEditText();
     }
 
     // Get the font to delete it
@@ -943,7 +1013,9 @@ LRESULT CALLBACK NoteWindow::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam
             // pre-check avoids parsing settings.json on every plain keystroke.
             if ((GetKeyState(VK_CONTROL) & 0x8000) ||
                 (GetKeyState(VK_MENU) & 0x8000)) {
-                auto sc = SettingsDialog::LoadFromStorage().shortcuts;
+                auto settings = SettingsDialog::LoadFromStorage();
+                auto& sc = settings.shortcuts;   // hold object; shortcuts is a
+                                                 // C-array (would dangle via auto).
                 auto hasCtrlAlt = [](WORD hk) {
                     return hk != 0 &&
                            (HIBYTE(hk) & (HOTKEYF_CONTROL | HOTKEYF_ALT)) != 0;
@@ -1026,7 +1098,8 @@ void NoteWindow::ShowContextMenu(int screenX, int screenY) {
     if (!hPopup) return;
 
     auto& app = Application::Get();
-    auto sc = SettingsDialog::LoadFromStorage().shortcuts;
+    auto settings = SettingsDialog::LoadFromStorage();
+    auto& sc = settings.shortcuts;   // hold object; shortcuts is a C-array (dangles via auto).
 
     app.AppendMenuItem(hPopup, ID_NOTE_EDIT,   Ls(L"note.edit").c_str(),   SIID_RENAME);
     app.AppendMenuItem(hPopup, ID_NOTE_RENAME, Ls(L"note.rename").c_str(), SIID_DOCASSOC);
@@ -1130,6 +1203,7 @@ void NoteWindow::HandleMenuCommand(int cmd) {
             DestroyAttachmentIcons();
             InvalidateRect(m_hwnd, nullptr, TRUE);
             LayoutEditCtrl();
+            UpdateTooltip();
             NotifyChanged();
             break;
 
@@ -1138,6 +1212,9 @@ void NoteWindow::HandleMenuCommand(int cmd) {
             break;
 
         case ID_NOTE_PRINT:
+            // Flush in-progress edits so the printout reflects the live text,
+            // not the last-saved version. Keep editing afterwards.
+            if (m_inEditMode) CommitEditText();
             Application::Get().PrintNoteByIds(m_hwnd, { m_data->id });
             break;
 
@@ -1150,6 +1227,13 @@ void NoteWindow::HandleMenuCommand(int cmd) {
             break;
 
         case ID_NOTE_HIDE:
+            // Commit and tear down the editor first; otherwise unsaved text is
+            // lost and the EDIT control lingers on the hidden window.
+            if (m_inEditMode) ExitEditMode(true);
+            // Hide the in-note find dialog too — leaving it open would let
+            // "Find Next" re-create an EDIT control on the now-invisible note.
+            if (m_findDialog && m_findDialog->GetHwnd())
+                ShowWindow(m_findDialog->GetHwnd(), SW_HIDE);
             m_data->isHidden = true;
             Show(false);
             NotifyChanged();
@@ -1157,15 +1241,22 @@ void NoteWindow::HandleMenuCommand(int cmd) {
             break;
 
         case ID_NOTE_COPY:
+            // Copy the live text when editing, not the last-saved version.
+            if (m_inEditMode) CommitEditText();
             if (OpenClipboard(m_hwnd)) {
                 EmptyClipboard();
                 size_t size = (m_data->text.size() + 1) * sizeof(wchar_t);
                 HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, size);
                 if (hMem) {
                     wchar_t* dst = static_cast<wchar_t*>(GlobalLock(hMem));
-                    wcscpy_s(dst, m_data->text.size() + 1, m_data->text.c_str());
-                    GlobalUnlock(hMem);
-                    SetClipboardData(CF_UNICODETEXT, hMem);
+                    if (dst) {
+                        wcscpy_s(dst, m_data->text.size() + 1, m_data->text.c_str());
+                        GlobalUnlock(hMem);
+                        // The clipboard owns hMem only once SetClipboardData succeeds.
+                        if (!SetClipboardData(CF_UNICODETEXT, hMem)) GlobalFree(hMem);
+                    } else {
+                        GlobalFree(hMem);
+                    }
                 }
                 CloseClipboard();
             }
@@ -1216,6 +1307,13 @@ void NoteWindow::LayoutEditCtrl() {
                rc.right  - 2 * TEXT_PADDING,
                rc.bottom - 2 * TEXT_PADDING - abHeight,
                TRUE);
+    // MoveWindow resets the EDIT control's formatting rect to its default
+    // (which reserves implicit caret space at the right edge, wrapping ~2px
+    // early vs. PaintText). Re-apply the full-client format rect like
+    // EnterEditMode does so word-wrap stays consistent across resizes.
+    RECT fmt;
+    GetClientRect(m_hEditCtrl, &fmt);
+    SendMessageW(m_hEditCtrl, EM_SETRECTNP, 0, reinterpret_cast<LPARAM>(&fmt));
 }
 
 void NoteWindow::InsertFilePathAtCursor() {
@@ -1388,6 +1486,24 @@ RECT NoteWindow::GetAttachmentBarRect() const {
     return barRc;
 }
 
+void NoteWindow::UpdateTooltip() {
+    // The tooltip tool was registered with an empty rect, so the TTF_SUBCLASS
+    // hover hit-test never fired. Point its tracking rect at the current
+    // attachment bar (empty when the bar is hidden) so hovering a file shows
+    // its full path. Must be re-run whenever the bar's geometry changes.
+    if (!m_hTooltip) return;
+    TTTOOLINFOW ti = {};
+    ti.cbSize = sizeof(ti);
+    ti.hwnd   = m_hwnd;
+    ti.uId    = 1;
+    if (m_data->showAttachments && !m_data->attachments.empty()) {
+        ti.rect = GetAttachmentBarRect();
+    } else {
+        SetRectEmpty(&ti.rect);
+    }
+    SendMessageW(m_hTooltip, TTM_NEWTOOLRECT, 0, reinterpret_cast<LPARAM>(&ti));
+}
+
 int NoteWindow::AttachmentHitTest(int x, int y) const {
     if (!m_data->showAttachments || m_data->attachments.empty())
         return -1;
@@ -1435,8 +1551,14 @@ void NoteWindow::PaintAttachmentBar(HDC hdc, const RECT& /*rc*/) {
         for (auto& path : m_data->attachments) {
             SHFILEINFOW sfi = {};
             HICON hIcon = nullptr;
-            if (SHGetFileInfoW(path.c_str(), 0, &sfi, sizeof(sfi),
-                               SHGFI_ICON | SHGFI_SMALLICON)) {
+            // Probe existence first. A dead UNC path passed to SHGetFileInfoW
+            // without SHGFI_USEFILEATTRIBUTES makes the shell hit the network and
+            // block the UI thread on the connect timeout (seconds). If the file
+            // is unreachable, skip the blocking query and resolve the icon purely
+            // from the extension via SHGFI_USEFILEATTRIBUTES (no I/O).
+            bool exists = GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+            if (exists && SHGetFileInfoW(path.c_str(), 0, &sfi, sizeof(sfi),
+                                         SHGFI_ICON | SHGFI_SMALLICON)) {
                 hIcon = sfi.hIcon;
             } else {
                 sfi = {};
@@ -1501,6 +1623,7 @@ void NoteWindow::HandleDropFiles(HDROP hDrop) {
     DestroyAttachmentIcons();
     InvalidateRect(m_hwnd, nullptr, TRUE);
     LayoutEditCtrl();
+    UpdateTooltip();
     NotifyChanged();
 }
 
@@ -1518,6 +1641,7 @@ void NoteWindow::RemoveAttachment(int index) {
     DestroyAttachmentIcons();
     InvalidateRect(m_hwnd, nullptr, TRUE);
     LayoutEditCtrl();
+    UpdateTooltip();
     NotifyChanged();
 }
 
@@ -1629,6 +1753,11 @@ void NoteWindow::OpenAlarmDialog() {
 
 bool NoteWindow::FindNextInNote(const std::wstring& term, bool caseSensitive, bool wholeWord) {
     if (term.empty()) return false;
+
+    // Refuse to search a hidden note: EnterEditMode below would create an EDIT
+    // control on the invisible window and steal focus, so the user's typing
+    // would vanish into a note they can't see.
+    if (!IsWindowVisible(m_hwnd)) return false;
 
     // Lazily enter edit mode so we can highlight and scroll to matches.
     bool wasInEditMode = m_inEditMode;

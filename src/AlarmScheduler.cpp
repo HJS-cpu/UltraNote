@@ -313,11 +313,12 @@ std::optional<SYSTEMTIME> AlarmScheduler::ComputeNextFireTime(const AlarmConfig&
             y = alarm.startTime.wYear;
             qStart = stQStart;
         } else {
-            // startTime falls in the current (or a past) quarter — never fire
-            // retroactively in the same quarter; skip to the quarter after now's.
+            // startTime falls in the current (or a past) quarter. Start the search
+            // at the CURRENT quarter: the loop's >= nowFloor check already drops a
+            // quarterDay that has already passed, so a still-future one THIS quarter
+            // fires now instead of being pushed a quarter ahead (analog MonthlyDay).
             y = now.wYear;
-            qStart = nowQStart + 3;
-            if (qStart > 12) { qStart -= 12; ++y; }
+            qStart = nowQStart;
         }
         for (int i = 0; i < 8; ++i) {
             SYSTEMTIME qFirst = MakeDate(y, qStart, 1, alarm.startTime);
@@ -350,6 +351,10 @@ std::optional<SYSTEMTIME> AlarmScheduler::ComputeNextFireTime(const AlarmConfig&
         }
         break;
     }
+    default:
+        // Out-of-range kind (ParseAlarmObject clamps to 0..7, so this is just a
+        // guard): bail instead of returning an uninitialized candidate SYSTEMTIME.
+        return std::nullopt;
     }
 
     // End condition: after specific date (compare whole calendar day)

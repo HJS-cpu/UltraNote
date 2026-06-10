@@ -4,11 +4,15 @@
 #include <commctrl.h>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
+#include <unordered_map>
+#include <unordered_set>
 
 class AlarmConfigDialog;
 class HeaderDragOverlay;
+struct NoteData;   // defined in Note.h; CompareFunc only holds NoteData*
 
 class NoteListWindow {
 public:
@@ -50,6 +54,20 @@ private:
 
     void SortByColumn(int col);       // User click: toggles direction
     void ApplyCurrentSort();           // Re-apply current sort without toggling
+
+    // Per-sort scratch passed to CompareFunc via sortParam. Built once in
+    // ApplyCurrentSort so the comparator does O(1) hash lookups instead of a
+    // linear FindNoteData per comparison (sort was O(n^2 log n)), and so the
+    // alarm columns precompute their key once per note rather than per compare.
+    // Valid only for the duration of one ListView_SortItems call.
+    struct SortContext {
+        int  column    = 0;
+        bool ascending = true;
+        std::unordered_map<uint64_t, NoteData*> byId;
+        // Only filled when sorting by the matching alarm column.
+        std::unordered_map<uint64_t, std::optional<SYSTEMTIME>> nextFire;  // COL_NEXT_ALARM
+        std::unordered_map<uint64_t, std::wstring>              interval;  // COL_INTERVAL
+    };
     static int CALLBACK CompareFunc(LPARAM lp1, LPARAM lp2, LPARAM sortParam);
 
     void EditSelectedNote();
@@ -61,6 +79,10 @@ private:
     void HandlePrint();
     void ToggleNoteHidden(uint64_t noteId);
     void ToggleNoteAlwaysOnTop(uint64_t noteId);
+    // Flip a single note's always-on-top flag + restack its window WITHOUT
+    // MarkDirty/Refresh, so multi-select callers can mutate the whole batch and
+    // refresh once. ToggleNoteAlwaysOnTop wraps this for the single-note case.
+    void ApplyAlwaysOnTopToggle(uint64_t noteId);
 
     // Folder context menu
     void ShowFolderContextMenu(int screenX, int screenY);
@@ -105,7 +127,10 @@ private:
     HICON      m_hSearchIcon    = nullptr;
     HFONT      m_hSearchFont    = nullptr;
     HFONT      m_hSymbolFont    = nullptr;   // cached 20px symbol font (custom-draw)
+    HFONT      m_hAllNotesFont  = nullptr;   // cached bold font for the "All Notes" folder row
     HICON      m_hAttachIcon    = nullptr;   // cached attachment icon (custom-draw)
+    HICON      m_hWndIconSmall  = nullptr;   // title-bar icon (WM_SETICON, owned)
+    HICON      m_hWndIconBig    = nullptr;   // taskbar icon (WM_SETICON, owned)
 
     enum class FolderFilter { All, Unfiled, Named };
     FolderFilter m_folderFilter   = FolderFilter::All;
@@ -166,6 +191,11 @@ private:
 
     // Cached display settings (refreshed on Refresh/settings change)
     bool     m_zebraStriping      = false;
+
+    // Note ids whose alarm fires today, computed once per PopulateList. The
+    // row custom-draw (NM_CUSTOMDRAW) consults this set instead of recomputing
+    // GetLocalTime + ComputeNextFireTime + a linear note lookup on every paint.
+    std::unordered_set<uint64_t> m_alarmTodayIds;
 
     // Preview state
     bool     m_previewEnabled     = false;

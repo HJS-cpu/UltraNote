@@ -27,6 +27,10 @@ private:
     void CreateControls();
     void LayoutControls();
     void OnFindNext();
+    // (Re)position the dialog next to its owner note, clamped to the owner's
+    // monitor work area. Used on first show and on every re-show so the dialog
+    // never ends up off-screen after the note moved or a monitor disappeared.
+    void UpdatePosition();
 
     HINSTANCE   m_hInst     = nullptr;
     NoteWindow* m_owner     = nullptr;

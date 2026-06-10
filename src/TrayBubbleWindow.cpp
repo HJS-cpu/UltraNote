@@ -6,21 +6,38 @@ bool TrayBubbleWindow::s_classRegistered = false;
 
 static constexpr wchar_t kClassName[] = L"UltraNoteTrayBubble";
 
-// Visual constants
+// Visual constants. The kPx* values are authored at 96 dpi and scaled to the
+// bubble's actual monitor DPI at Show() time (see ScaleDpi / m_dpi).
 namespace {
     constexpr COLORREF kBgColor     = RGB(255, 252, 206);  // Sticky-note yellow
     constexpr COLORREF kBorderColor = RGB(170, 150,  60);  // Darker amber
     constexpr COLORREF kHeaderColor = RGB( 40,  40,  40);
     constexpr COLORREF kBodyColor   = RGB( 60,  60,  60);
 
-    constexpr int kPadX        = 12;   // Horizontal padding inside bubble body
-    constexpr int kPadY        = 8;    // Vertical padding
-    constexpr int kCornerR     = 8;    // Rounded corner radius
-    constexpr int kTailLen     = 10;   // Height of the tail (in tail direction)
-    constexpr int kTailHalfW   = 9;    // Half-width of the tail base
-    constexpr int kHeaderGap   = 4;    // Extra space under header line
-    constexpr int kMaxContentW = 320;  // Maximum text width before wrapping
-    constexpr int kGap         = 6;    // Gap between bubble and tray icon
+    constexpr int kPxPadX        = 12;   // Horizontal padding inside bubble body
+    constexpr int kPxPadY        = 8;    // Vertical padding
+    constexpr int kPxCornerR     = 8;    // Rounded corner radius
+    constexpr int kPxTailLen     = 10;   // Height of the tail (in tail direction)
+    constexpr int kPxTailHalfW   = 9;    // Half-width of the tail base
+    constexpr int kPxHeaderGap   = 4;    // Extra space under header line
+    constexpr int kPxMaxContentW = 320;  // Maximum text width before wrapping
+    constexpr int kPxGap         = 6;    // Gap between bubble and tray icon
+
+    // Effective DPI of a monitor via GetDpiForMonitor (shcore.dll, Win8.1+) loaded
+    // through GetProcAddress so we don't add a shcore.lib link dependency. Returns
+    // 96 on older systems / failure.
+    UINT MonitorDpi(HMONITOR hMon) {
+        using GetDpiForMonitorFn = HRESULT(WINAPI*)(HMONITOR, int, UINT*, UINT*);
+        static GetDpiForMonitorFn fn = []() -> GetDpiForMonitorFn {
+            HMODULE h = LoadLibraryW(L"shcore.dll");   // process-lifetime, intentionally not freed
+            return h ? reinterpret_cast<GetDpiForMonitorFn>(
+                           GetProcAddress(h, "GetDpiForMonitor")) : nullptr;
+        }();
+        if (!fn) return 96;
+        UINT dx = 96, dy = 96;
+        if (SUCCEEDED(fn(hMon, 0 /*MDT_EFFECTIVE_DPI*/, &dx, &dy)) && dx > 0) return dx;
+        return 96;
+    }
 }
 
 bool TrayBubbleWindow::Create(HINSTANCE hInst) {
@@ -49,15 +66,46 @@ bool TrayBubbleWindow::Create(HINSTANCE hInst) {
                              nullptr, nullptr, hInst, this);
     if (!m_hwnd) return false;
 
-    NONCLIENTMETRICS ncm = { sizeof(ncm) };
-    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+    // Fonts are created lazily in Show() once the target monitor DPI is known
+    // (a bubble may pop on a 96-dpi taskbar while the app started on a 192-dpi
+    // primary monitor), so we don't build them here.
+    return true;
+}
+
+// Rebuilds the bubble fonts for `dpi` using the per-DPI non-client metrics.
+// SystemParametersInfoForDpi (Win10 1607+) returns the message font already
+// scaled for the given DPI; on older systems we fall back to the 96-dpi metrics
+// and scale the height manually so the bubble still grows on high-DPI monitors.
+void TrayBubbleWindow::EnsureFontsForDpi(UINT dpi) {
+    if (dpi == 0) dpi = 96;
+    if (m_hFontRegular && m_hFontBold && dpi == m_dpi) return;  // already current
+    m_dpi = dpi;
+
+    NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+    bool scaled = false;
+    // GetProcAddress keeps the link clean (user32 is always loaded) and degrades
+    // gracefully on pre-1607 builds where the symbol is absent.
+    using SPIFD = BOOL(WINAPI*)(UINT, UINT, PVOID, UINT, UINT);
+    if (HMODULE hUser = GetModuleHandleW(L"user32.dll")) {
+        if (auto pSPIFD = reinterpret_cast<SPIFD>(
+                GetProcAddress(hUser, "SystemParametersInfoForDpi"))) {
+            scaled = pSPIFD(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0, dpi) != FALSE;
+        }
+    }
+    if (!scaled) {
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        // 96-dpi metrics: scale the font height to the target DPI ourselves.
+        ncm.lfMessageFont.lfHeight = MulDiv(ncm.lfMessageFont.lfHeight, dpi, 96);
+    }
+
     LOGFONTW lfRegular = ncm.lfMessageFont;
     LOGFONTW lfBold    = ncm.lfMessageFont;
     lfBold.lfWeight    = FW_BOLD;
+
+    if (m_hFontRegular) { DeleteObject(m_hFontRegular); m_hFontRegular = nullptr; }
+    if (m_hFontBold)    { DeleteObject(m_hFontBold);    m_hFontBold    = nullptr; }
     m_hFontRegular = CreateFontIndirectW(&lfRegular);
     m_hFontBold    = CreateFontIndirectW(&lfBold);
-
-    return true;
 }
 
 void TrayBubbleWindow::Destroy() {
@@ -115,10 +163,11 @@ SIZE TrayBubbleWindow::MeasureContent() const {
     HDC hdc = GetDC(m_hwnd);
     if (!hdc) return result;
 
+    const int maxContentW = ScaleDpi(kPxMaxContentW);
     auto measureBlock = [&](const std::wstring& text, HFONT font, int& outH) -> int {
         if (text.empty()) { outH = 0; return 0; }
         HGDIOBJ oldF = SelectObject(hdc, font);
-        RECT rc = { 0, 0, kMaxContentW, 0 };
+        RECT rc = { 0, 0, maxContentW, 0 };
         DrawTextW(hdc, text.c_str(), -1, &rc,
                   DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
         SelectObject(hdc, oldF);
@@ -131,7 +180,7 @@ SIZE TrayBubbleWindow::MeasureContent() const {
     int bodyW   = measureBlock(m_body,   m_hFontRegular, bodyH);
 
     result.cx = (std::max)(headerW, bodyW);
-    result.cy = headerH + (headerH && bodyH ? kHeaderGap : 0) + bodyH;
+    result.cy = headerH + (headerH && bodyH ? ScaleDpi(kPxHeaderGap) : 0) + bodyH;
 
     ReleaseDC(m_hwnd, hdc);
     return result;
@@ -142,40 +191,44 @@ SIZE TrayBubbleWindow::MeasureContent() const {
 // with its tip horizontally/vertically centered at `tailCenter` in client
 // coords. The rectangular body occupies the remaining client area.
 void TrayBubbleWindow::BuildRegion(int bubbleW, int bubbleH, TailSide side, int tailCenter) {
+    const int tailLen   = ScaleDpi(kPxTailLen);
+    const int tailHalfW = ScaleDpi(kPxTailHalfW);
+    const int cornerR   = ScaleDpi(kPxCornerR);
+
     RECT bodyRc = { 0, 0, bubbleW, bubbleH };
     switch (side) {
-        case TailSide::Bottom: bodyRc.bottom -= kTailLen; break;
-        case TailSide::Top:    bodyRc.top    += kTailLen; break;
-        case TailSide::Right:  bodyRc.right  -= kTailLen; break;
-        case TailSide::Left:   bodyRc.left   += kTailLen; break;
+        case TailSide::Bottom: bodyRc.bottom -= tailLen; break;
+        case TailSide::Top:    bodyRc.top    += tailLen; break;
+        case TailSide::Right:  bodyRc.right  -= tailLen; break;
+        case TailSide::Left:   bodyRc.left   += tailLen; break;
     }
 
     HRGN rBody = CreateRoundRectRgn(bodyRc.left, bodyRc.top,
                                     bodyRc.right + 1, bodyRc.bottom + 1,
-                                    kCornerR * 2, kCornerR * 2);
+                                    cornerR * 2, cornerR * 2);
 
     POINT tri[3] = {};
     const int c = tailCenter;
     switch (side) {
         case TailSide::Bottom:
-            tri[0] = { c - kTailHalfW, bodyRc.bottom - 1 };
-            tri[1] = { c + kTailHalfW, bodyRc.bottom - 1 };
-            tri[2] = { c,              bubbleH - 1      };
+            tri[0] = { c - tailHalfW, bodyRc.bottom - 1 };
+            tri[1] = { c + tailHalfW, bodyRc.bottom - 1 };
+            tri[2] = { c,             bubbleH - 1       };
             break;
         case TailSide::Top:
-            tri[0] = { c - kTailHalfW, bodyRc.top + 1 };
-            tri[1] = { c + kTailHalfW, bodyRc.top + 1 };
-            tri[2] = { c,              0              };
+            tri[0] = { c - tailHalfW, bodyRc.top + 1 };
+            tri[1] = { c + tailHalfW, bodyRc.top + 1 };
+            tri[2] = { c,             0              };
             break;
         case TailSide::Right:
-            tri[0] = { bodyRc.right - 1, c - kTailHalfW };
-            tri[1] = { bodyRc.right - 1, c + kTailHalfW };
-            tri[2] = { bubbleW - 1,      c              };
+            tri[0] = { bodyRc.right - 1, c - tailHalfW };
+            tri[1] = { bodyRc.right - 1, c + tailHalfW };
+            tri[2] = { bubbleW - 1,      c             };
             break;
         case TailSide::Left:
-            tri[0] = { bodyRc.left + 1, c - kTailHalfW };
-            tri[1] = { bodyRc.left + 1, c + kTailHalfW };
-            tri[2] = { 0,               c              };
+            tri[0] = { bodyRc.left + 1, c - tailHalfW };
+            tri[1] = { bodyRc.left + 1, c + tailHalfW };
+            tri[2] = { 0,               c             };
             break;
     }
     HRGN rTail = CreatePolygonRgn(tri, 3, WINDING);
@@ -190,6 +243,13 @@ void TrayBubbleWindow::BuildRegion(int bubbleW, int bubbleH, TailSide side, int 
 }
 
 void TrayBubbleWindow::Paint(HDC hdc) {
+    const int tailLen   = ScaleDpi(kPxTailLen);
+    const int tailHalfW = ScaleDpi(kPxTailHalfW);
+    const int cornerR   = ScaleDpi(kPxCornerR);
+    const int padX      = ScaleDpi(kPxPadX);
+    const int padY      = ScaleDpi(kPxPadY);
+    const int headerGap = ScaleDpi(kPxHeaderGap);
+
     RECT rc;
     GetClientRect(m_hwnd, &rc);
 
@@ -203,16 +263,16 @@ void TrayBubbleWindow::Paint(HDC hdc) {
     // along the body perimeter. RoundRect with NULL_BRUSH strokes only.
     RECT bodyRc = rc;
     switch (m_tailSide) {
-        case TailSide::Bottom: bodyRc.bottom -= kTailLen; break;
-        case TailSide::Top:    bodyRc.top    += kTailLen; break;
-        case TailSide::Right:  bodyRc.right  -= kTailLen; break;
-        case TailSide::Left:   bodyRc.left   += kTailLen; break;
+        case TailSide::Bottom: bodyRc.bottom -= tailLen; break;
+        case TailSide::Top:    bodyRc.top    += tailLen; break;
+        case TailSide::Right:  bodyRc.right  -= tailLen; break;
+        case TailSide::Left:   bodyRc.left   += tailLen; break;
     }
     HPEN pen       = CreatePen(PS_SOLID, 1, kBorderColor);
     HGDIOBJ oldPen = SelectObject(hdc, pen);
     HGDIOBJ oldBr  = SelectObject(hdc, GetStockObject(NULL_BRUSH));
     RoundRect(hdc, bodyRc.left, bodyRc.top, bodyRc.right, bodyRc.bottom,
-              kCornerR * 2, kCornerR * 2);
+              cornerR * 2, cornerR * 2);
 
     // Tail outline: two edges from the triangle (the third is hidden behind
     // the body stroke, which is rounded and actually leaves a tiny gap — so
@@ -221,27 +281,27 @@ void TrayBubbleWindow::Paint(HDC hdc) {
     const int c = m_tailCenter;
     switch (m_tailSide) {
         case TailSide::Bottom:
-            tri[0] = { c - kTailHalfW, bodyRc.bottom };
-            tri[1] = { c,              rc.bottom - 1 };
-            tri[2] = { c + kTailHalfW, bodyRc.bottom };
+            tri[0] = { c - tailHalfW, bodyRc.bottom };
+            tri[1] = { c,             rc.bottom - 1 };
+            tri[2] = { c + tailHalfW, bodyRc.bottom };
             tri[3] = tri[0];
             break;
         case TailSide::Top:
-            tri[0] = { c - kTailHalfW, bodyRc.top };
-            tri[1] = { c,              0          };
-            tri[2] = { c + kTailHalfW, bodyRc.top };
+            tri[0] = { c - tailHalfW, bodyRc.top };
+            tri[1] = { c,             0          };
+            tri[2] = { c + tailHalfW, bodyRc.top };
             tri[3] = tri[0];
             break;
         case TailSide::Right:
-            tri[0] = { bodyRc.right, c - kTailHalfW };
-            tri[1] = { rc.right - 1, c              };
-            tri[2] = { bodyRc.right, c + kTailHalfW };
+            tri[0] = { bodyRc.right, c - tailHalfW };
+            tri[1] = { rc.right - 1, c             };
+            tri[2] = { bodyRc.right, c + tailHalfW };
             tri[3] = tri[0];
             break;
         case TailSide::Left:
-            tri[0] = { bodyRc.left, c - kTailHalfW };
-            tri[1] = { 0,           c              };
-            tri[2] = { bodyRc.left, c + kTailHalfW };
+            tri[0] = { bodyRc.left, c - tailHalfW };
+            tri[1] = { 0,           c             };
+            tri[2] = { bodyRc.left, c + tailHalfW };
             tri[3] = tri[0];
             break;
     }
@@ -254,7 +314,7 @@ void TrayBubbleWindow::Paint(HDC hdc) {
     // Text
     SetBkMode(hdc, TRANSPARENT);
     RECT textRc = bodyRc;
-    InflateRect(&textRc, -kPadX, -kPadY);
+    InflateRect(&textRc, -padX, -padY);
 
     if (!m_header.empty()) {
         HGDIOBJ oldF = SelectObject(hdc, m_hFontBold);
@@ -266,7 +326,7 @@ void TrayBubbleWindow::Paint(HDC hdc) {
         RECT calc = textRc;
         DrawTextW(hdc, m_header.c_str(), -1, &calc,
                   DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
-        textRc.top = calc.bottom + kHeaderGap;
+        textRc.top = calc.bottom + headerGap;
         SelectObject(hdc, oldF);
     }
     if (!m_body.empty() && textRc.top < textRc.bottom) {
@@ -284,6 +344,16 @@ void TrayBubbleWindow::Show(const RECT& trayIconRect,
     if (!m_hwnd) return;
     m_header = header;
     m_body   = body;
+
+    // Scale everything to the tray icon's monitor DPI. Must run before
+    // MeasureContent()/ScaleDpi(), which read m_dpi.
+    EnsureFontsForDpi(MonitorDpi(MonitorFromRect(&trayIconRect, MONITOR_DEFAULTTONEAREST)));
+    const int kPadX      = ScaleDpi(kPxPadX);
+    const int kPadY      = ScaleDpi(kPxPadY);
+    const int kTailLen   = ScaleDpi(kPxTailLen);
+    const int kGap       = ScaleDpi(kPxGap);
+    const int kCornerR   = ScaleDpi(kPxCornerR);
+    const int kTailHalfW = ScaleDpi(kPxTailHalfW);
 
     SIZE content = MeasureContent();
     int bubbleW = content.cx + 2 * kPadX;

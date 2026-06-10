@@ -9,9 +9,13 @@
 
 class Storage {
 public:
-    // Load all notes from notes.json; returns empty vector if file missing
+    // Load all notes from notes.json; returns empty vector if file missing.
+    // outCorrupt is set to true when notes.json existed but failed to parse
+    // fully — in that case LoadNotes has already written a notes.json.bak backup
+    // of the raw file before any save can overwrite it with the partial set.
     static std::vector<std::unique_ptr<NoteData>> LoadNotes(uint64_t& outNextId,
-                                                              std::vector<std::wstring>& outFolders);
+                                                              std::vector<std::wstring>& outFolders,
+                                                              bool& outCorrupt);
 
     // Save all notes to notes.json (atomic: write .tmp then rename)
     static bool SaveNotes(const std::vector<std::unique_ptr<NoteData>>& notes, uint64_t nextId,
