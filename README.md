@@ -109,6 +109,17 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 
 ## Changelog
 
+### v1.8.5 (2026-06-10)
+- **Full code-audit remediation:** 74 verified findings fixed across data safety, crashes, alarms, the note list, settings, performance, and HiDPI — no new features, no new dependencies
+- **Data safety:** edit-mode text survives shutdown / sign-out / tray-exit; a damaged `notes.json` is backed up to `notes.json.bak` and reported instead of partially loaded then overwritten on save; writes are flushed to disk before the atomic rename; BOM-prefixed / hand-edited files load reliably; note IDs are healed against collisions
+- **Crashes & UB:** dangling shortcut-table pointers, localized-strings-as-`printf`, About-dialog overflow, unchecked `localtime_s`/`wcsftime`, clipboard `GlobalLock`/`GlobalFree`, and `WM_NCDESTROY` cleanup all fixed
+- **Alarms:** "sound only" now works; Quarterly fires in the current quarter; default times handle the 23:55 and Feb-29 rollovers; stacked popups no longer cut off each other's sound; the popup shows its multi-line preview
+- **Tray & windows:** tray icon returns after an Explorer restart; switching language with the Settings dialog open no longer breaks Settings; note-list layout persists across close / exit / language change; off-screen notes are pulled back on screen
+- **Settings & keyboard:** full Tab/Esc/Enter navigation in dialogs; global hotkeys require Ctrl or Alt; AltGr and navigation-key shortcut labels fixed; `IsDialogMessageW` wired into the message loop
+- **Performance & leaks:** list sort no longer O(n²); a dead UNC attachment can't block the UI thread; multi-select and multi-delete batch their saves; GDI and per-language-switch icon leaks closed
+- **HiDPI:** tray hover bubble and column-drag insertion markers scale on 125–200 % monitors
+- **Note list:** hover preview triggers only when the cursor tip is on a note row, not while crossing the column header
+
 ### v1.8.0 (2026-06-08)
 - **Recurring alarms fixed:** Daily/Every-N-Days/Weekly/Monthly/Quarterly/Yearly alarms now fire — the scheduler's "next occurrence" contract was strictly in the future while the trigger only fired on past-or-now, so only one-shot alarms ever went off; a per-note minute throttle prevents double-fire and re-pop after dismiss
 - **Multi-select Always-on-Top:** the shortcut now toggles every selected note (the list re-populated mid-loop, so only the first toggled); stacked alarm popups reuse freed slots instead of overlapping

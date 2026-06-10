@@ -1,29 +1,47 @@
-## UltraNote v1.8.0 — Portable Sticky Notes for Windows
+## UltraNote v1.8.5 — Portable Sticky Notes for Windows
 
 A modern recreation of ATnotes (2005) built with pure Win32 API and C++17. Lightweight, portable, and dependency-free.
 
-### What's New in v1.8.0
+### What's New in v1.8.5
 
-A stability, correctness, and hardening release — the result of a full code audit.
+The complete remediation of a full code audit — **74 verified findings fixed** across data safety, crashes, alarms, the note list, settings, performance, and HiDPI. No new features, no new dependencies.
 
-**Alarms fixed:**
-- Recurring alarms (Daily, Every-N-Days, Weekly, Monthly, Quarterly, Yearly) now actually fire — previously only one-shot alarms worked
-- Stacked alarm popups no longer overlap when an earlier popup is dismissed
+**Data safety:**
+- Text typed in edit mode is no longer lost on Windows shutdown, sign-out, or tray-exit
+- A damaged `notes.json` is backed up to `notes.json.bak` and reported, instead of silently loading only part of your notes and overwriting the rest on the next save
+- Saves are flushed all the way to disk before the atomic rename — no zero-byte or partial file on power loss / USB removal
+- BOM-prefixed and hand-edited storage files load reliably; stored note IDs are healed so a new note can never collide with an existing one
 
-**Note-list fixes:**
-- "Always on Top" via shortcut now toggles **all** selected notes, not just the first
-- Hover preview keeps tracking the right note after re-sorting or refreshing the list
+**Crash & stability fixes:**
+- Several use-after-free / dangling-pointer paths closed (note context menus, localized-string lookup)
+- Localized strings are never passed as `printf` format strings; the About dialog can't overflow on an over-long translated title
+- Out-of-range timestamps no longer trip a debug assertion in the print / date-column code; clipboard copy handles allocation failure cleanly
+- Modeless dialogs (alarm, find) tear down cleanly without a stray `DefWindowProc(nullptr)`
 
-**Robustness & security hardening:**
-- Imported `.unote` files are validated (format/version check, clamped geometry/font sizes, capped attachments) and malformed JSON can no longer crash or misbehave
-- Localized strings can no longer crash the About dialog, export/import messages, or the print footer
-- UTF-8 language names display correctly in the language picker
+**Alarms:**
+- "Sound only" alarms work — a sound without a popup window (the popup/sound checkboxes were partly inverted, and "sound only" was silent)
+- Quarterly alarms fire in the current quarter instead of skipping a quarter ahead; the default start time near midnight no longer lands in the past; the end date survives Feb 29
+- Stacked alarm popups no longer cut off each other's sound; the popup shows its full multi-line note preview
 
-**Performance:**
-- Settings are cached instead of re-read from disk on every keystroke, list refresh, and preview tick
-- Faster note search and less GDI churn while scrolling the list and editing notes
+**Tray, windows & language:**
+- The tray icon comes back after an Explorer restart or crash (it's the only way to control the app)
+- Switching the UI language while the Settings dialog is open no longer makes Settings un-openable until restart
+- Note-list position and columns survive closing, tray-toggle, exit, and language change; notes left off-screen are brought back on screen
 
-**Leaks closed:** settings dialog and About dialog no longer leak GDI/icon handles on repeated open/close.
+**Keyboard & dialogs:**
+- Full Tab / Esc / Enter navigation in the Settings, alarm, and find dialogs
+- Global hotkeys now require Ctrl or Alt, so a bare key can't be captured system-wide; Shift-only and bare-key per-note rebinds fire correctly
+- More keys render correctly in shortcut labels (Home/End/arrows); AltGr no longer triggers Alt-only shortcuts while typing
+
+**Performance & leaks:**
+- Sorting and populating large note lists is no longer O(n²); a dead network-drive attachment can no longer freeze the UI thread
+- Multi-select actions and multi-delete write to disk once instead of once per note; GDI / icon handle leaks closed (note-list icons and fonts)
+
+**HiDPI:**
+- The tray hover bubble and the column-drag insertion markers now scale on 125–200 % monitors
+
+**Note list:**
+- Hover preview triggers only when the cursor tip is over a note row — no longer while crossing the column header
 
 ### Download
 
