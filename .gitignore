@@ -40,9 +40,13 @@ RichEdit-Control.md
 UltraNote-SQLite-Migrationsplan.md
 UltraNote_Arbeitsaufgaben.md
 Icon_Optimierung.md
+Fabble.md
 
 # Local task/planning workspace (todo.md, lessons.md, screenshots)
 tasks/
+
+# Local utility scripts (never commit)
+tools/
 
 # Local setup docs
 GitLab-Runner-Setup.md
