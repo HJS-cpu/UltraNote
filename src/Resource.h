@@ -1,7 +1,7 @@
 #pragma once
 
 // Version
-#define ULTRANOTE_VERSION       L"v1.8.5"
+#define ULTRANOTE_VERSION       L"v1.8.6"
 
 // Icons
 #define IDI_APP                 101
@@ -158,6 +158,9 @@
 // Tab 1: Layout (extended)
 #define IDC_SEARCH_HL_SWATCH    602
 #define IDC_SEARCH_HL_BTN       603
+
+// Tab 3: General (extended)
+#define IDC_NEWNOTE_ALWAYSONTOP 604
 
 // Folder management
 #define ID_NL_FOLDER_NEW        240

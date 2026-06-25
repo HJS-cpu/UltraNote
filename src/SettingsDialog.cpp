@@ -110,6 +110,7 @@ SettingsData SettingsDialog::LoadFromStorage() {
     d.cascadeReset   = getInt(L"newnote.cascade_reset", 500);
     d.defaultFolder  = getStr(L"newnote.folder", L"");
     d.initialText    = getStr(L"newnote.initialText", L"");
+    d.newNoteAlwaysOnTop = getInt(L"newnote.alwaysOnTop", 0) != 0;
 
     d.dateFormat     = getInt(L"notelist.dateFormat", 0);
     d.zebraStriping  = getInt(L"notelist.zebra", 0) != 0;
@@ -158,6 +159,7 @@ void SettingsDialog::SaveToStorage(const SettingsData& data) {
     intS[L"newnote.cascade_reset"] = data.cascadeReset;
     strS[L"newnote.folder"]        = data.defaultFolder;
     strS[L"newnote.initialText"]  = data.initialText;
+    intS[L"newnote.alwaysOnTop"]  = data.newNoteAlwaysOnTop ? 1 : 0;
 
     intS[L"notelist.dateFormat"]   = data.dateFormat;
     intS[L"notelist.zebra"]        = data.zebraStriping ? 1 : 0;
@@ -820,6 +822,16 @@ void SettingsDialog::CreateGeneralTab(HWND hwnd) {
         SendMessageW(hLinksCheck, BM_SETCHECK, BST_CHECKED, 0);
     y += rowH;
 
+    HWND hNewNoteTopCheck = CreateWindowExW(0, L"BUTTON", Ls(L"settings.newnote_alwaysontop").c_str(),
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        ix, y, contentW - indent, 18,
+        panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_NEWNOTE_ALWAYSONTOP)),
+        nullptr, nullptr);
+    SendMessageW(hNewNoteTopCheck, WM_SETFONT, reinterpret_cast<WPARAM>(hDefaultFont), TRUE);
+    if (m_data.newNoteAlwaysOnTop)
+        SendMessageW(hNewNoteTopCheck, BM_SETCHECK, BST_CHECKED, 0);
+    y += rowH;
+
     HWND hDelayLabel = CreateWindowExW(0, L"STATIC", Ls(L"settings.preview_delay").c_str(),
         WS_CHILD | WS_VISIBLE | SS_LEFT,
         ix + subIndent, y + 2, 130, 18, panel, nullptr, nullptr, nullptr);
@@ -1347,6 +1359,9 @@ void SettingsDialog::ReadFromControls() {
 
     HWND hLinksCheck = GetDlgItem(gp, IDC_CLICKABLE_LINKS);
     if (hLinksCheck) m_data.clickableLinks = (SendMessageW(hLinksCheck, BM_GETCHECK, 0, 0) == BST_CHECKED);
+
+    HWND hNewNoteTopCheck = GetDlgItem(gp, IDC_NEWNOTE_ALWAYSONTOP);
+    if (hNewNoteTopCheck) m_data.newNoteAlwaysOnTop = (SendMessageW(hNewNoteTopCheck, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     hSpin = GetDlgItem(gp, IDC_PREVIEW_DELAY_SPIN);
     if (hSpin) m_data.previewDelay = static_cast<int>(SendMessageW(hSpin, UDM_GETPOS32, 0, 0));

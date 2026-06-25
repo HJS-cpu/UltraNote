@@ -1,47 +1,15 @@
-## UltraNote v1.8.5 — Portable Sticky Notes for Windows
+## UltraNote v1.8.6 — Portable Sticky Notes for Windows
 
 A modern recreation of ATnotes (2005) built with pure Win32 API and C++17. Lightweight, portable, and dependency-free.
 
-### What's New in v1.8.5
+### What's New in v1.8.6
 
-The complete remediation of a full code audit — **74 verified findings fixed** across data safety, crashes, alarms, the note list, settings, performance, and HiDPI. No new features, no new dependencies.
+**New setting — "New notes always on top":**
+- A new checkbox in Settings → General (Display group) makes every newly created note default to always-on-top
+- Off by default, so existing behaviour is unchanged; the option only affects notes created after it is enabled
+- Existing notes keep their individual always-on-top state — the global default never overrides a note you've already pinned or un-pinned
 
-**Data safety:**
-- Text typed in edit mode is no longer lost on Windows shutdown, sign-out, or tray-exit
-- A damaged `notes.json` is backed up to `notes.json.bak` and reported, instead of silently loading only part of your notes and overwriting the rest on the next save
-- Saves are flushed all the way to disk before the atomic rename — no zero-byte or partial file on power loss / USB removal
-- BOM-prefixed and hand-edited storage files load reliably; stored note IDs are healed so a new note can never collide with an existing one
-
-**Crash & stability fixes:**
-- Several use-after-free / dangling-pointer paths closed (note context menus, localized-string lookup)
-- Localized strings are never passed as `printf` format strings; the About dialog can't overflow on an over-long translated title
-- Out-of-range timestamps no longer trip a debug assertion in the print / date-column code; clipboard copy handles allocation failure cleanly
-- Modeless dialogs (alarm, find) tear down cleanly without a stray `DefWindowProc(nullptr)`
-
-**Alarms:**
-- "Sound only" alarms work — a sound without a popup window (the popup/sound checkboxes were partly inverted, and "sound only" was silent)
-- Quarterly alarms fire in the current quarter instead of skipping a quarter ahead; the default start time near midnight no longer lands in the past; the end date survives Feb 29
-- Stacked alarm popups no longer cut off each other's sound; the popup shows its full multi-line note preview
-
-**Tray, windows & language:**
-- The tray icon comes back after an Explorer restart or crash (it's the only way to control the app)
-- Switching the UI language while the Settings dialog is open no longer makes Settings un-openable until restart
-- Note-list position and columns survive closing, tray-toggle, exit, and language change; notes left off-screen are brought back on screen
-
-**Keyboard & dialogs:**
-- Full Tab / Esc / Enter navigation in the Settings, alarm, and find dialogs
-- Global hotkeys now require Ctrl or Alt, so a bare key can't be captured system-wide; Shift-only and bare-key per-note rebinds fire correctly
-- More keys render correctly in shortcut labels (Home/End/arrows); AltGr no longer triggers Alt-only shortcuts while typing
-
-**Performance & leaks:**
-- Sorting and populating large note lists is no longer O(n²); a dead network-drive attachment can no longer freeze the UI thread
-- Multi-select actions and multi-delete write to disk once instead of once per note; GDI / icon handle leaks closed (note-list icons and fonts)
-
-**HiDPI:**
-- The tray hover bubble and the column-drag insertion markers now scale on 125–200 % monitors
-
-**Note list:**
-- Hover preview triggers only when the cursor tip is over a note row — no longer while crossing the column header
+Built on top of the v1.8.5 code-audit remediation (74 verified fixes); no new dependencies.
 
 ### Download
 

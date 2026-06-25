@@ -109,6 +109,9 @@ Every push to `master` triggers automatic builds on both GitHub Actions and GitL
 
 ## Changelog
 
+### v1.8.6 (2026-06-25)
+- **New setting "New notes always on top":** a checkbox in Settings → General (Display group) makes newly created notes default to always-on-top; off by default, applies only to notes created after it is enabled, and never overrides the individual always-on-top state of existing notes
+
 ### v1.8.5 (2026-06-10)
 - **Full code-audit remediation:** 74 verified findings fixed across data safety, crashes, alarms, the note list, settings, performance, and HiDPI — no new features, no new dependencies
 - **Data safety:** edit-mode text survives shutdown / sign-out / tray-exit; a damaged `notes.json` is backed up to `notes.json.bak` and reported instead of partially loaded then overwritten on save; writes are flushed to disk before the atomic rename; BOM-prefixed / hand-edited files load reliably; note IDs are healed against collisions

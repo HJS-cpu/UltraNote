@@ -668,6 +668,7 @@ NoteWindow* Application::CreateNewNote() {
     note->layout.fontSizePts     = settings.fontSize;
     note->layout.fontBold        = settings.fontBold;
     note->layout.fontItalic      = settings.fontItalic;
+    note->layout.alwaysOnTop     = settings.newNoteAlwaysOnTop;
 
     // Apply default folder from settings
     note->folder = settings.defaultFolder;

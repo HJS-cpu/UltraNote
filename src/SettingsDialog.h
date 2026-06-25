@@ -45,6 +45,7 @@ struct SettingsData {
     bool     previewEnabled     = false;
     int      previewDelay       = 400;
     bool     clickableLinks     = true;
+    bool     newNoteAlwaysOnTop = false;  // New notes default to always-on-top
     int      trayDoubleClick    = 0;   // 0=new note, 1=note list, 2=show all
     bool     autostartEnabled   = false;
     std::wstring language       = L"en";
