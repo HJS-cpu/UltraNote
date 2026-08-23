@@ -451,7 +451,7 @@ static LRESULT CALLBACK AboutLinkSubclassProc(HWND hwnd, UINT msg,
             return TRUE;
         case WM_LBUTTONUP:
             ShellExecuteW(hwnd, L"open",
-                          L"https://github.com/HJS-cpu/UltraNote",
+                          L"https://github.com/HJS-Lab/UltraNote",
                           nullptr, nullptr, SW_SHOWNORMAL);
             return 0;
         case WM_NCDESTROY:
@@ -532,7 +532,7 @@ void Application::ShowAboutDialog(HWND hParent) {
     p += sizeof(DLGITEMTEMPLATE);
     *reinterpret_cast<WORD*>(p) = 0xFFFF; p += sizeof(WORD);
     *reinterpret_cast<WORD*>(p) = 0x0082; p += sizeof(WORD);
-    writeStr(L"github.com/HJS-cpu/UltraNote");
+    writeStr(L"github.com/HJS-Lab/UltraNote");
     *reinterpret_cast<WORD*>(p) = 0; p += sizeof(WORD);
     align4();
 

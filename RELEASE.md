@@ -41,5 +41,5 @@ Built on top of the v1.8.5 code-audit remediation (74 verified fixes); no new de
 
 ### Links
 
-- [Source Code](https://github.com/HJS-cpu/UltraNote)
-- [All Releases](https://github.com/HJS-cpu/UltraNote/releases)
+- [Source Code](https://github.com/HJS-Lab/UltraNote)
+- [All Releases](https://github.com/HJS-Lab/UltraNote/releases)

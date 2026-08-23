@@ -20,7 +20,7 @@ A modern recreation of **ATnotes** (the classic sticky notes app from 2005) buil
 
 > **Portable:** Single EXE, no installation needed. All data (notes, settings) stored next to the executable.
 
-Download the latest version from [GitHub Releases](https://github.com/HJS-cpu/UltraNote/releases) or [GitLab Releases](https://gitlab.com/HJS-cpu/ultranote/-/releases).
+Download the latest version from [GitHub Releases](https://github.com/HJS-Lab/UltraNote/releases) or [GitLab Releases](https://gitlab.com/HJS-cpu/ultranote/-/releases).
 
 ---
 
